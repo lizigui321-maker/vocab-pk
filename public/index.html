@@ -2065,7 +2065,22 @@ boot();
 <script>
 /* 注册 Service Worker：让网页可「添加到主屏幕」当作 App 安装，并支持离线打开首页 */
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function(){ navigator.serviceWorker.register('/sw.js').catch(function(){}); });
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('/sw.js').then(function(reg){
+      // 检测到新版本安装完成（且当前已有旧版本在运行）→ 自动刷新，确保用户始终拿到最新代码，
+      // 避免一直停留在旧的缓存页面（例如「选不了词本/计划」这类其实是旧版页面导致的假象）
+      reg.addEventListener('updatefound', function(){
+        var installing = reg.installing;
+        if (!installing) return;
+        installing.addEventListener('statechange', function(){
+          if (installing.state === 'installed' && navigator.serviceWorker.controller && !window.__vpkReloading) {
+            window.__vpkReloading = true;
+            location.reload();
+          }
+        });
+      });
+    }).catch(function(){});
+  });
 }
 </script>
 </body>

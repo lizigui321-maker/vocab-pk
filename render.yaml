@@ -7,7 +7,7 @@ services:
     runtime: node
     plan: free
     region: oregon          # 可改成 singapore 等离用户更近的区
-    branch: main            # 按你的仓库分支调整
+    branch: master            # 按你的仓库分支调整
     buildCommand: "true"    # 零依赖，无需构建
     startCommand: "node server.js"
     envVars:

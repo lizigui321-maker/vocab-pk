@@ -525,28 +525,73 @@ function api(path, body, method){
     });
   });
 }
+/* ---------- 发音：优先浏览器 TTS，无语音包/不支持时自动回退在线 MP3（适配安卓自带浏览器） ---------- */
+var _voices = [];
+function _refreshVoices(){ try { if ('speechSynthesis' in window) { var v = speechSynthesis.getVoices(); if (v && v.length) _voices = v; } } catch (e) {} }
+_refreshVoices();
+if ('speechSynthesis' in window) { speechSynthesis.onvoiceschanged = _refreshVoices; }
+var _ttsBroken = false;   // 浏览器 TTS 已确认不可用 → 之后直接走 MP3
+var _audioEl = null;
+function _getAudio(){ if (!_audioEl) { _audioEl = new Audio(); _audioEl.preload = 'auto'; } return _audioEl; }
+function _mp3Urls(word, lang){
+  var q = encodeURIComponent(word);
+  var tl = (lang === 'es') ? 'es' : 'en';
+  var urls = ['https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&total=1&idx=0&textlen=64&tl=' + tl + '&q=' + q];
+  if (lang !== 'es') urls.push('https://dict.youdao.com/dictvoice?le=en&type=2&audio=' + q);
+  return urls;
+}
+function _playMp3(word, lang){
+  var urls = _mp3Urls(word, lang);
+  var a = _getAudio();
+  var i = 0;
+  function tryNext(){
+    if (i >= urls.length) { toast('当前浏览器发音受限，点 🔊 可重试，或换 Chrome/Edge'); return; }
+    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+    a.src = urls[i++];
+    var p = a.play();
+    if (p && p.catch) p.catch(function(){ tryNext(); });
+    a.onerror = function(){ tryNext(); };
+  }
+  tryNext();
+}
 function speak(word, lang){
   lang = (lang === 'es') ? 'es' : 'en';
+  word = String(word || '').trim();
+  if (!word) return;
+  // 1) 浏览器 TTS：有语音包才用（小米/华为/vivo 等自带浏览器常无语音包，speak 会静默失败）
   try {
-    if (!('speechSynthesis' in window)) { toast('当前浏览器不支持语音朗读，建议使用 Chrome/Edge'); return; }
-    var u = new SpeechSynthesisUtterance(word);
-    u.lang = (lang === 'es') ? 'es-ES' : 'en-US';
-    u.rate = 0.85;
-    var voices = speechSynthesis.getVoices();
-    var v = null;
-    var want = (lang === 'es') ? /^es(-|_)/i : /^en(-|_)US/i;
-    var loose = (lang === 'es') ? /^es/i : /^en/i;
-    for (var i = 0; i < voices.length; i++) {
-      if (want.test(voices[i].lang)) { v = voices[i]; break; }
+    if (!_ttsBroken && 'speechSynthesis' in window) {
+      _refreshVoices();
+      if (_voices.length) {
+        var u = new SpeechSynthesisUtterance(word);
+        u.lang = (lang === 'es') ? 'es-ES' : 'en-US';
+        u.rate = 0.85;
+        var want = (lang === 'es') ? /^es(-|_)/i : /^en(-|_)US/i;
+        var loose = (lang === 'es') ? /^es/i : /^en/i;
+        var v = null;
+        for (var i = 0; i < _voices.length; i++) if (want.test(_voices[i].lang)) { v = _voices[i]; break; }
+        if (!v) for (var j = 0; j < _voices.length; j++) if (loose.test(_voices[j].lang)) { v = _voices[j]; break; }
+        if (v) u.voice = v;
+        u.onerror = function(){ _ttsBroken = true; _playMp3(word, lang); };
+        speechSynthesis.cancel();
+        speechSynthesis.speak(u);
+        return;
+      }
     }
-    if (!v) for (var j = 0; j < voices.length; j++) if (loose.test(voices[j].lang)) { v = voices[j]; break; }
-    if (v) u.voice = v;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-    if (lang === 'es' && !v) {} // 系统未装西语语音包时浏览器仍会用默认音尝试发音
-  } catch (e) {}
+  } catch (e) { _ttsBroken = true; }
+  // 2) 回退：在线 TTS MP3（Google，支持英/西；失败再试有道）
+  _playMp3(word, lang);
 }
-if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = function(){}; }
+/* 首次用户手势时解锁 <audio>，绕过安卓自带浏览器的自动播放限制 */
+document.addEventListener('pointerdown', function _unlockAudio(){
+  document.removeEventListener('pointerdown', _unlockAudio);
+  try {
+    var a = _getAudio();
+    a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=';
+    var p = a.play();
+    if (p && p.catch) p.catch(function(){});
+  } catch (e) {}
+}, { once: true });
 
 /* ---------- SSE + 轮询兜底 ---------- */
 var pollTimer = null;   // 轮询定时器

@@ -44,7 +44,8 @@ for (const b of BOOKS) {
 }
 
 /* ---------------- 持久化存储（生词本 / 词汇量排行） ---------------- */
-const STORE = path.join(__dirname, 'store');
+/* STORE_DIR 环境变量可指定数据目录（用于 Render 挂载持久磁盘）；默认用代码目录下的 store/ */
+const STORE = process.env.STORE_DIR ? path.resolve(process.env.STORE_DIR) : path.join(__dirname, 'store');
 if (!fs.existsSync(STORE)) fs.mkdirSync(STORE, { recursive: true });
 const RANK_FILE = path.join(STORE, 'vocab-rank.json');
 const ACCOUNTS_FILE = path.join(STORE, 'accounts.json');
@@ -52,13 +53,75 @@ const SESSIONS_FILE = path.join(STORE, 'sessions.json');
 const GROUPS_FILE = path.join(STORE, 'groups.json');
 function loadJSON(f, dflt) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return dflt; } }
 function saveJSON(f, data) { try { fs.writeFileSync(f, JSON.stringify(data), 'utf8'); } catch (e) {} }
+
+/* ---- 可选云端持久化（Upstash Redis REST）：解决 Render 免费版每次部署/重启清空本地磁盘、
+   导致账号与生词本全部丢失的问题。配置 UPSTASH_REDIS_REST_URL 与 UPSTASH_REDIS_REST_TOKEN
+   两个环境变量即自动启用；未配置时退回纯本地文件模式（行为与之前完全一致）。 ---- */
+const UPSTASH_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/+$/, '');
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
+const KV_ON = !!(UPSTASH_URL && UPSTASH_TOKEN && typeof fetch === 'function');
+const KV_PREFIX = 'vocabpk:v1:';
+async function kvGet(key) {
+  try {
+    const r = await fetch(UPSTASH_URL + '/get/' + encodeURIComponent(KV_PREFIX + key), { headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN } });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    if (d.result == null) return null;
+    try { return JSON.parse(d.result); } catch (e) { return null; }
+  } catch (e) { return null; }
+}
+async function kvSet(key, data) {
+  try {
+    await fetch(UPSTASH_URL + '/set/' + encodeURIComponent(KV_PREFIX + key), {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify(JSON.stringify(data)),
+    });
+  } catch (e) {}
+}
+const kvTimers = {};
+function kvSave(key, data) { // 防抖合并：一次答题/操作只触发一次网络写
+  if (!KV_ON) return;
+  if (kvTimers[key]) clearTimeout(kvTimers[key]);
+  kvTimers[key] = setTimeout(() => { delete kvTimers[key]; kvSet(key, data); }, 400);
+}
 let vocabRank = loadJSON(RANK_FILE, []);     // [{name, best, latest, count, at}] 词汇量排行
 let accounts = loadJSON(ACCOUNTS_FILE, {});  // username(小写) -> {username, salt, hash, name, createdAt, words:[{word,meaning,book,at}]}
 let sessions = loadJSON(SESSIONS_FILE, {});  // token -> {username, at}
 let groups = loadJSON(GROUPS_FILE, {});      // groupId -> {id, name, owner, members:[username], code, createdAt}
-function saveAccounts(){ saveJSON(ACCOUNTS_FILE, accounts); }
-function saveSessions(){ saveJSON(SESSIONS_FILE, sessions); }
-function saveGroups(){ saveJSON(GROUPS_FILE, groups); }
+function saveAccounts(){ saveJSON(ACCOUNTS_FILE, accounts); kvSave('accounts', accounts); }
+function saveSessions(){ saveJSON(SESSIONS_FILE, sessions); kvSave('sessions', sessions); }
+function saveGroups(){ saveJSON(GROUPS_FILE, groups); kvSave('groups', groups); }
+function saveRank(){ saveJSON(RANK_FILE, vocabRank); kvSave('vocab-rank', vocabRank); }
+/* 启动时：启用云端持久化则以云端数据为准（本地文件在 Render 上部署即被清空）；
+   云端为空（首次启用）时把本地现有数据上传，完成无缝迁移。 */
+async function loadStoreFromKV() {
+  if (!KV_ON) return false;
+  try {
+    const [kAcc, kSes, kGrp, kRk] = await Promise.all([
+      kvGet('accounts'), kvGet('sessions'), kvGet('groups'), kvGet('vocab-rank'),
+    ]);
+    let migrated = false;
+    if (kAcc && typeof kAcc === 'object') { accounts = kAcc; } else if (Object.keys(accounts).length) { kvSet('accounts', accounts); migrated = true; }
+    if (kSes && typeof kSes === 'object') { sessions = kSes; } else if (Object.keys(sessions).length) { kvSet('sessions', sessions); migrated = true; }
+    if (kGrp && typeof kGrp === 'object') { groups = kGrp; } else if (Object.keys(groups).length) { kvSet('groups', groups); migrated = true; }
+    if (Array.isArray(kRk)) { vocabRank = kRk; } else if (vocabRank.length) { kvSet('vocab-rank', vocabRank); migrated = true; }
+    saveJSON(ACCOUNTS_FILE, accounts); saveJSON(SESSIONS_FILE, sessions); saveJSON(GROUPS_FILE, groups); saveJSON(RANK_FILE, vocabRank);
+    console.log('  存储模式:  Upstash Redis 云端持久化（账号/生词本跨部署不丢失）' + (migrated ? ' · 已完成本地→云端首次迁移' : ''));
+    return true;
+  } catch (e) {
+    console.log('  存储模式:  本地文件（云端拉取失败：' + (e && e.message || e) + '）');
+    return false;
+  }
+}
+/* 进程退出前（Render 部署时会发 SIGTERM）把防抖挂起的写入立刻落到云端 */
+function kvFlush() {
+  if (!KV_ON) return;
+  for (const k of Object.keys(kvTimers)) { clearTimeout(kvTimers[k]); delete kvTimers[k]; }
+  kvSet('accounts', accounts); kvSet('sessions', sessions); kvSet('groups', groups); kvSet('vocab-rank', vocabRank);
+}
+process.on('SIGTERM', () => { kvFlush(); setTimeout(() => process.exit(0), 600); });
+process.on('SIGINT', () => { kvFlush(); setTimeout(() => process.exit(0), 600); });
 function hashPassword(pw, salt){ return crypto.scryptSync(String(pw), salt, 32).toString('hex'); }
 function newSession(username){
   const token = crypto.randomBytes(24).toString('hex');
@@ -651,7 +714,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/info') {
       let publicUrl = '';
       try { publicUrl = fs.readFileSync('store/public-url.txt', 'utf8').trim(); } catch (e) {}
-      return send(res, 200, { port: PORT, ips: lanIPs(), publicUrl });
+      return send(res, 200, { port: PORT, ips: lanIPs(), publicUrl, storeMode: KV_ON ? 'upstash' : 'local' });
     }
     // ---------------- 账号系统接口 ----------------
     if (req.method === 'POST' && p === '/api/register') {
@@ -1061,7 +1124,7 @@ const server = http.createServer(async (req, res) => {
       }
       vocabRank.sort((a, b2) => b2.best - a.best || a.at - b2.at);
       if (vocabRank.length > 200) vocabRank.length = 200;
-      saveJSON(RANK_FILE, vocabRank);
+      saveRank();
       return send(res, 200, {
         ok: true,
         estimate,
@@ -1300,13 +1363,16 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+/* 启动：若配置了云端持久化，先从云端拉取数据再对外服务，避免用空数据响应 */
+loadStoreFromKV().then(() => {
+  server.listen(PORT, '0.0.0.0', () => {
   const onCloud = process.env.RENDER || process.env.RAILWAY || process.env.KOYEB || process.env.VERCEL || process.env.PORT;
   const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.KOYEB_APP_PUBLIC_DOMAIN || '';
   const ips = lanIPs();
   console.log('====================================');
   console.log('  背他喵的 · 背单词+单词对战 已启动');
   console.log('====================================');
+  if (!KV_ON) console.log('  存储模式:  本地文件（若部署平台清空磁盘数据会丢失，建议配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN）');
   if (onCloud) {
     if (externalUrl) console.log('  公网地址:  https://' + externalUrl);
     console.log('  监听端口:  ' + PORT);
@@ -1320,4 +1386,5 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('  · 公网玩家请通过隧道地址访问（start-online.bat）');
   }
   console.log('====================================');
+  });
 });

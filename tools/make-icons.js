@@ -1,6 +1,7 @@
-// 生成单词PK 的 App 图标（纯 Node 手写 PNG 编码，无需任何图片库）
+// 生成「背他喵的」的 App 图标（纯 Node 手写 PNG 编码，无需任何图片库）
 // 输出：public/icon-192.png、public/icon-512.png
 //      apk 工程各密度 mipmap 的 ic_launcher.png / ic_launcher_round.png
+// 图案：蓝紫渐变背景 + 白色猫脸（两只三角耳 + 圆脸 + 眼睛 + 鼻子）
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
@@ -45,19 +46,30 @@ function encodePNG(size, rgba) {
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 }
 
-// 闪电多边形（归一化 0..1，y 向下）
-const BOLT = [
-  [0.52, 0.06], [0.16, 0.60], [0.42, 0.60], [0.30, 0.96],
-  [0.86, 0.36], [0.58, 0.36], [0.70, 0.06],
-];
-function inPoly(x, y, poly) {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
-    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
-  }
-  return inside;
+// ---- 几何判定（归一化 0..1，y 向下） ----
+function inCircle(x, y, cx, cy, r) {
+  const dx = x - cx, dy = y - cy;
+  return dx * dx + dy * dy <= r * r;
 }
+function inTri(x, y, p1, p2, p3) {
+  const d = (p2[1] - p3[1]) * (p1[0] - p3[0]) + (p3[0] - p2[0]) * (p1[1] - p3[1]);
+  if (d === 0) return false;
+  const a = ((p2[1] - p3[1]) * (x - p3[0]) + (p3[0] - p2[0]) * (y - p3[1])) / d;
+  const b = ((p3[1] - p1[1]) * (x - p3[0]) + (p1[0] - p3[0]) * (y - p3[1])) / d;
+  const c = 1 - a - b;
+  return a >= -0.001 && b >= -0.001 && c >= -0.001;
+}
+
+// 猫脸关键坐标
+const FACE = [0.5, 0.54, 0.36];              // 圆脸：cx, cy, r
+const EAR_L = [[0.27, 0.25], [0.43, 0.23], [0.31, 0.03]]; // 左耳三角
+const EAR_R = [[0.73, 0.25], [0.57, 0.23], [0.69, 0.03]]; // 右耳三角
+const EYE_L = [0.40, 0.52, 0.052];
+const EYE_R = [0.60, 0.52, 0.052];
+const NOSE = [[0.47, 0.62], [0.53, 0.62], [0.50, 0.69]];
+
+const WHITE = [255, 255, 255];
+const DARK = [27, 39, 107]; // #1b276b 眼睛/鼻子
 
 function makeIcon(size) {
   const buf = Buffer.alloc(size * size * 4);
@@ -66,17 +78,19 @@ function makeIcon(size) {
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const nx = x / size, ny = y / size;
-      // 背景：左上偏蓝、右下偏紫的简单渐变，增加层次
+      // 背景：左上偏蓝、右下偏紫的渐变
       const t = (nx + ny) / 2;
       const r = Math.round(base[0] + (hi[0] - base[0]) * t);
       const g = Math.round(base[1] + (hi[1] - base[1]) * t);
       const b = Math.round(base[2] + (hi[2] - base[2]) * t);
-      const white = inPoly(nx, ny, BOLT);
+      let col = [r, g, b];
+      const onFace = inCircle(nx, ny, FACE[0], FACE[1], FACE[2]);
+      const onEar = inTri(nx, ny, EAR_L[0], EAR_L[1], EAR_L[2]) || inTri(nx, ny, EAR_R[0], EAR_R[1], EAR_R[2]);
+      if (onFace || onEar) col = WHITE;
+      if (inCircle(nx, ny, EYE_L[0], EYE_L[1], EYE_L[2]) || inCircle(nx, ny, EYE_R[0], EYE_R[1], EYE_R[2])) col = DARK;
+      if (inTri(nx, ny, NOSE[0], NOSE[1], NOSE[2])) col = DARK;
       const o = (y * size + x) * 4;
-      buf[o] = white ? 255 : r;
-      buf[o + 1] = white ? 255 : g;
-      buf[o + 2] = white ? 255 : b;
-      buf[o + 3] = 255;
+      buf[o] = col[0]; buf[o + 1] = col[1]; buf[o + 2] = col[2]; buf[o + 3] = 255;
     }
   }
   return encodePNG(size, buf);

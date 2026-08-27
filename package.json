@@ -2,7 +2,7 @@
   "name": "vocab-pk",
   "version": "1.0.0",
   "private": true,
-  "description": "单词PK · 在线英语词汇对战（零依赖 Node 服务器 + 网页/App 客户端）",
+  "description": "背他喵的 · 背单词与单词对战（零依赖 Node 服务器 + 网页/App 客户端）",
   "scripts": {
     "start": "node server.js"
   },

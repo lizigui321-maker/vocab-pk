@@ -1,5 +1,5 @@
 /*
- * 词书转换脚本：把百词斩词库 JSON 转成单词PK格式
+ * 词书转换脚本：把百词斩词库 JSON 转成背他喵的 格式
  * 用法：node tools/convert-books.js <源目录> <输出路径>
  * 源目录需包含: cz(中考) gz4 gz5 gz6 gz6b gz7 gz10 gz11(人教高中各册) cet6 ky ielts toefl
  */

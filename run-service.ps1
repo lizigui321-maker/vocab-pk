@@ -1,5 +1,5 @@
 # run-service.ps1
-# 单词PK 常驻看门狗：开机自启 + 服务器崩溃自动重启 + 公网隧道断开自动重连
+# 背他喵的 常驻看门狗：开机自启 + 服务器崩溃自动重启 + 公网隧道断开自动重连
 # 由计划任务（install-service.bat）或 service.bat 调用，无界面后台运行。
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -70,7 +70,7 @@ function Parse-Url() {
   return $null
 }
 
-Log "==== 单词PK 看门狗启动 (PID $PID) ===="
+Log "==== 背他喵的 看门狗启动 (PID $PID) ===="
 
 # 首次拉起（若已存在则不重复启动）
 if (-not (Test-Port 3000)) { Start-Node }

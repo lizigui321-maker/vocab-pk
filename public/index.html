@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="背单词">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<title>背单词 · 轻松积累你的词汇量</title>
+<title>背他喵的 · 轻松积累你的词汇量</title>
 <style>
 :root{
   --ink:#1f2430; --sub:#6b7280; --line:#e5e7eb;
@@ -529,8 +529,8 @@ function onAuthed(d){
 function renderAuth(){
   page = 'auth';
   app.innerHTML =
-  '<h1><span class="logo"><span class="ic">⚡</span>单词<span class="vs">PK</span></span></h1>' +
-  '<div class="tagline">登录后即可对战 · 生词本与昵称绑定账号，永不错乱</div>' +
+  '<h1><span class="logo"><span class="ic">🐱</span>背他喵的</span></h1>' +
+  '<div class="tagline">登录后开启你的背单词之旅 · 生词本、熟词本与进度绑定账号，永不错乱</div>' +
   '<div class="card">' +
     '<div class="tabs">' +
       '<button id="tabLogin" class="on">登录</button>' +
@@ -544,7 +544,7 @@ function renderAuth(){
       '<label class="fl">昵称（游戏中显示，可随时修改）</label>' +
       '<input type="text" id="nickInput" maxlength="12" placeholder="给自己起个名字">' +
     '</div>' +
-    '<button class="btn" id="authBtn">登录 🚀</button>' +
+    '<button class="btn" id="authBtn">登录 🐱</button>' +
     '<div class="hint"><b>说明</b><br>· 账号用于保存你的<b>独立生词本</b>和<b>昵称</b>，换设备、清缓存都不丢；<br>· 按你的要求<b>不支持上传头像</b>；<br>· 注册后自动登录。</div>' +
   '</div>';
 
@@ -554,7 +554,7 @@ function renderAuth(){
     $('#tabLogin').classList.toggle('on', m === 'login');
     $('#tabReg').classList.toggle('on', m === 'reg');
     $('#nameWrap').style.display = m === 'reg' ? '' : 'none';
-    $('#authBtn').textContent = m === 'login' ? '登录 🚀' : '注册并登录 🚀';
+    $('#authBtn').textContent = m === 'login' ? '登录 🐱' : '注册并登录 🐱';
   }
   $('#tabLogin').onclick = function(){ switchTab('login'); };
   $('#tabReg').onclick = function(){ switchTab('reg'); };
@@ -646,12 +646,12 @@ function renderHome(){
       app.innerHTML = topbar +
         '<div class="hero">' + hero + '</div>' +
         '<div class="feat-grid">' +
-          '<div class="feat pk" id="fPk"><div class="ic">⚡</div><div class="t">单词PK 对战</div><div class="d">和小伙伴实时比拼</div></div>' +
+          '<div class="feat pk" id="fPk"><div class="ic">⚡</div><div class="t">单词对战</div><div class="d">和小伙伴实时比拼</div></div>' +
           '<div class="feat" id="fWrong"><div class="ic">📒</div><div class="t">生词本</div><div class="d">' + (ov.wrongCount || 0) + ' 个答错的词</div></div>' +
           '<div class="feat" id="fKnown"><div class="ic">📗</div><div class="t">熟词本</div><div class="d">' + (ov.knownCount || 0) + ' 个已掌握</div></div>' +
           '<div class="feat" id="fVocab"><div class="ic">📊</div><div class="t">词汇量自测</div><div class="d">测测你有多少词</div></div>' +
         '</div>' +
-        '<div class="footer-tip">背单词为主，PK 对战为辅 · 学习错题与 PK 错题共享同一本生词本</div>';
+        '<div class="footer-tip">背单词为主，单词对战为辅 · 学习错题与对战错题共享同一本生词本</div>';
       $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
       var hr = $('#hReview'); if (hr) hr.onclick = function(){ page = 'study'; stuStart('review'); };
       $('#fPk').onclick = function(){ renderPk(); };
@@ -662,16 +662,16 @@ function renderHome(){
     })
     .catch(function(e){ toast(e.message); renderAuth(); });
 }
-/* ---------- 单词PK 对战入口（从首页「⚡ 单词PK」进入） ---------- */
+/* ---------- 单词对战入口（从首页「⚡ 单词对战」进入） ---------- */
 function renderPk(){
   var bookOpts = bookOptionsHTML(null);
   var ipHtml = INFO.ips && INFO.ips.length
     ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
     : '<code>http://本机IP:' + INFO.port + '</code>';
   app.innerHTML =
-    '<div class="topbar" style="justify-content:space-between"><span class="chip">⚡ 单词PK</span>' +
+    '<div class="topbar" style="justify-content:space-between"><span class="chip">⚡ 单词对战</span>' +
       '<button class="copybtn" id="pkBack">← 首页</button></div>' +
-    '<h1>⚡ 单词PK 对战</h1>' +
+    '<h1>⚡ 单词对战</h1>' +
     '<div class="tagline">和小伙伴实时比拼词汇 · 也支持单人练习</div>' +
     '<div class="card">' +
       '<div class="tabs"><button id="tabCreate" class="on">创建房间</button><button id="tabJoin">加入房间</button></div>' +
@@ -1541,7 +1541,7 @@ function exportBackup(){
       var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
-      a.href = url; a.download = 'vocab-pk-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.href = url; a.download = 'beitaomiao-backup-' + new Date().toISOString().slice(0, 10) + '.json';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
       toast('备份已导出 📤');
@@ -1622,11 +1622,11 @@ function renderLobby(v){
   if (sb) sb.onclick = function(){
     sb.disabled = true; sb.innerHTML = '<span class="spin"></span>准备中…';
     api('/api/start', { roomId: session.roomId, playerId: session.playerId })
-      .catch(function(e){ toast(e.message); sb.disabled = false; sb.innerHTML = '开始对战 🚀'; });
+      .catch(function(e){ toast(e.message); sb.disabled = false; sb.innerHTML = '开始对战 🐱'; });
   };
   var clb = $('#copyLinkBtn');
   if (clb) clb.onclick = function(){
-    copyText('单词PK 对战地址：' + location.origin + '（房间号 ' + v.roomId + '）', '网址和房间号已复制');
+    copyText('单词对战地址：' + location.origin + '（房间号 ' + v.roomId + '）', '网址和房间号已复制');
   };
   $('#backBtn').onclick = leaveRoom;
 }

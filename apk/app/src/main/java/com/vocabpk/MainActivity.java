@@ -8,7 +8,7 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 /**
- * 单词PK 安卓壳：用 WebView 加载已部署的服务器网页。
+ * 背他喵的 安卓壳：用 WebView 加载已部署的服务器网页。
  * 所有游戏逻辑、账号、生词本都在服务器端，App 只是入口。
  * 服务器地址在 res/values/strings.xml 的 server_url 中配置。
  */

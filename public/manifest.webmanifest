@@ -1,7 +1,7 @@
 {
-  "name": "单词PK · 在线词汇对战",
-  "short_name": "单词PK",
-  "description": "浏览器/App 直接对战的英语词汇 PK 游戏，支持账号、独立生词本与词汇量排行。",
+  "name": "背他喵的 · 轻松背单词与单词对战",
+  "short_name": "背他喵的",
+  "description": "浏览器/App 直接背单词、做词汇量自测，也支持和朋友实时单词对战。账号保存独立生词本、熟词本与学习进度。",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

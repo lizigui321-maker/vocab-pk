@@ -271,6 +271,23 @@ var cur = null;          // 最近一次房间状态
 var page = 'home';       // auth | home | room | wrongbook | vocab
 var wrongList = [];      // 生词本数据
 var vq = null;           // 词汇量测试状态 {questions, tiers, idx, answers, phase}
+/* 按词书 id 查语言（en/es），用于朗读发音 */
+function bookLangOf(id){
+  for (var i = 0; i < BOOKS.length; i++) if (BOOKS[i].id === id) return BOOKS[i].lang || 'en';
+  return 'en';
+}
+var LANG_NAMES = { en: '英语', es: '西班牙语' };
+/* 按语言分组的词书下拉选项（英语 / 西班牙语） */
+function bookOptionsHTML(selectedId){
+  var langs = [];
+  BOOKS.forEach(function(b){ var ln = b.lang || 'en'; if (langs.indexOf(ln) < 0) langs.push(ln); });
+  return langs.map(function(ln){
+    var items = BOOKS.filter(function(b){ return (b.lang || 'en') === ln; }).map(function(b){
+      return '<option value="' + esc(b.id) + '"' + (b.id === selectedId ? ' selected' : '') + '>' + esc(b.name) + '（' + b.count + '词）</option>';
+    }).join('');
+    return langs.length > 1 ? '<optgroup label="' + (LANG_NAMES[ln] || ln) + '">' + items + '</optgroup>' : items;
+  }).join('');
+}
 var clockOffset = 0;     // 服务器时钟偏移
 var rafId = null;
 var lastSpokenQ = -1;
@@ -367,21 +384,25 @@ function api(path, body, method){
     });
   });
 }
-function speak(word){
+function speak(word, lang){
+  lang = (lang === 'es') ? 'es' : 'en';
   try {
     if (!('speechSynthesis' in window)) { toast('当前浏览器不支持语音朗读，建议使用 Chrome/Edge'); return; }
     var u = new SpeechSynthesisUtterance(word);
-    u.lang = 'en-US';
+    u.lang = (lang === 'es') ? 'es-ES' : 'en-US';
     u.rate = 0.85;
     var voices = speechSynthesis.getVoices();
     var v = null;
+    var want = (lang === 'es') ? /^es(-|_)/i : /^en(-|_)US/i;
+    var loose = (lang === 'es') ? /^es/i : /^en/i;
     for (var i = 0; i < voices.length; i++) {
-      if (/^en(-|_)US/i.test(voices[i].lang)) { v = voices[i]; break; }
+      if (want.test(voices[i].lang)) { v = voices[i]; break; }
     }
-    if (!v) for (var j = 0; j < voices.length; j++) if (/^en/i.test(voices[j].lang)) { v = voices[j]; break; }
+    if (!v) for (var j = 0; j < voices.length; j++) if (loose.test(voices[j].lang)) { v = voices[j]; break; }
     if (v) u.voice = v;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
+    if (lang === 'es' && !v) {} // 系统未装西语语音包时浏览器仍会用默认音尝试发音
   } catch (e) {}
 }
 if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = function(){}; }
@@ -511,9 +532,7 @@ function isPublicVisit(){
 }
 function renderHome(){
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-  var bookOpts = BOOKS.map(function(b){
-    return '<option value="' + esc(b.id) + '">' + esc(b.name) + '（' + b.count + '词）</option>';
-  }).join('');
+  var bookOpts = bookOptionsHTML(null);
   var ipHtml = INFO.ips && INFO.ips.length
     ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
     : '<code>http://本机IP:' + INFO.port + '</code>';
@@ -930,7 +949,9 @@ function renderStuDash(){
   '<div class="card">' +
     '<div class="wb-head"><span class="wb-count">单元进度（按词频排序 · 每单元 ' + ov.unitSize + ' 词）</span><span class="wb-count" id="stuPlanEdit" style="cursor:pointer;color:var(--brand)">✏️ 修改计划</span></div>' +
     '<div class="ugrid">' + units + '</div>' +
-    '<div class="hint">词频高的词在前面的单元、词频低的在后面；点任意单元可单独练习该单元。<br>已设置预估词汇量 <b>' + (ov.plan.vocabEstimate || 0) + '</b>' + (ov.plan.vocabEstimate ? '（频率排名 ≤ ' + ov.plan.vocabEstimate + ' 的简单词已跳过）' : '（未跳过简单词）') + ' · 每日 <b>' + ov.plan.dailyNew + '</b> 个新词</div>' +
+    '<div class="hint">' + (bookLangOf(ov.bookId) === 'es'
+      ? '基础常用词在前面的单元、进阶词在后面；点任意单元可单独练习该单元。<br>每日 <b>' + ov.plan.dailyNew + '</b> 个新词'
+      : '词频高的词在前面的单元、词频低的在后面；点任意单元可单独练习该单元。<br>已设置预估词汇量 <b>' + (ov.plan.vocabEstimate || 0) + '</b>' + (ov.plan.vocabEstimate ? '（频率排名 ≤ ' + ov.plan.vocabEstimate + ' 的简单词已跳过）' : '（未跳过简单词）') + ' · 每日 <b>' + ov.plan.dailyNew + '</b> 个新词') + '</div>' +
   '</div>';
   $('#stuBack').onclick = function(){ page = 'home'; renderHome(); };
   $('#stuGo').onclick = function(){ stuStart('daily'); };
@@ -949,9 +970,12 @@ function renderStudyPlan(isNew){
   stu.view = 'plan';
   var ov = stu.overview || { books: BOOKS, plan: null };
   var plan = ov.plan || { bookId: (BOOKS[0] || {}).id, dailyNew: 20, vocabEstimate: 0, autoSpeak: true };
-  var bookOpts = (ov.books || BOOKS).map(function(b){
-    return '<option value="' + esc(b.id) + '"' + (b.id === plan.bookId ? ' selected' : '') + '>' + esc(b.name) + '（' + b.count + '词）</option>';
-  }).join('');
+  var bookOpts = bookOptionsHTML(plan.bookId);
+  var bookLang = function(id){
+    var list = (ov.books && ov.books.length) ? ov.books : BOOKS;
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].lang || 'en';
+    return 'en';
+  };
   app.innerHTML =
   '<div class="topbar" style="justify-content:space-between">' +
     '<span class="chip">📚 ' + (isNew ? '制定学习计划' : '修改学习计划') + '</span>' +
@@ -966,16 +990,20 @@ function renderStudyPlan(isNew){
         return '<button data-v="' + n + '"' + (n === plan.dailyNew ? ' class="on"' : '') + '>' + n + ' 个</button>';
       }).join('') +
     '</div>' +
-    '<label class="fl">我估计自己大概认识多少词（用来跳过简单词）</label>' +
-    '<div class="stu-num">' +
-      '<input type="text" id="spEst" inputmode="numeric" maxlength="5" placeholder="例如 5000，填 0 或留空 = 不跳过" value="' + (plan.vocabEstimate || '') + '">' +
+    '<div id="spEstBlock">' +
+      '<label class="fl">我估计自己大概认识多少词（用来跳过简单词）</label>' +
+      '<div class="stu-num">' +
+        '<input type="text" id="spEst" inputmode="numeric" maxlength="5" placeholder="例如 5000，填 0 或留空 = 不跳过" value="' + (plan.vocabEstimate || '') + '">' +
+      '</div>' +
+      '<div class="seg2" id="spEstQuick" style="margin-top:8px">' +
+        [0, 1500, 3000, 4500, 6000, 8000].map(function(n){
+          return '<button data-v="' + n + '"' + (n === (plan.vocabEstimate || 0) ? ' class="on"' : '') + '>' + (n === 0 ? '不跳过' : n + '') + '</button>';
+        }).join('') +
+      '</div>' +
     '</div>' +
-    '<div class="seg2" id="spEstQuick" style="margin-top:8px">' +
-      [0, 1500, 3000, 4500, 6000, 8000].map(function(n){
-        return '<button data-v="' + n + '"' + (n === (plan.vocabEstimate || 0) ? ' class="on"' : '') + '>' + (n === 0 ? '不跳过' : n + '') + '</button>';
-      }).join('') +
-    '</div>' +
-    '<div class="hint">按<b>词频</b>学习：高频词排在前面单元，低频词在后面。设置估计词汇量（如 5000）后，词频排名前 5000 的简单词会<b>自动跳过</b>，直接从适合你难度的词开始。改小这个数字会把这些词重新纳入学习。</div>' +
+    '<div class="hint" id="spHint">' + (bookLang(plan.bookId) === 'es'
+      ? '西语词书按<b>使用频率</b>排序：基础常用词排在前面单元，进阶词在后面。'
+      : '按<b>词频</b>学习：高频词排在前面单元，低频词在后面。设置估计词汇量（如 5000）后，词频排名前 5000 的简单词会<b>自动跳过</b>，直接从适合你难度的词开始。改小这个数字会把这些词重新纳入学习。') + '</div>' +
     '<div class="switch' + (plan.autoSpeak !== false ? ' on' : '') + '" id="spSpeak"><span>🔊 自动朗读单词（显示题目时）</span><span class="sw"></span></div>' +
     '<button class="btn" id="spSave">' + (isNew ? '开始背单词 🚀' : '保存计划 💾') + '</button>' +
     '<div id="spSaved" class="hint" style="display:none"></div>' +
@@ -998,6 +1026,17 @@ function renderStudyPlan(isNew){
     b.classList.add('on');
     $('#spEst').value = (+b.getAttribute('data-v')) || '';
   });
+  var spBook = $('#spBook');
+  function syncBookLang(){
+    var es2 = bookLang(spBook.value) === 'es';
+    $('#spEstBlock').style.display = es2 ? 'none' : '';
+    $('#spHint').innerHTML = es2
+      ? '西语词书按<b>使用频率</b>排序：基础常用词排在前面单元，进阶词在后面。'
+      : '按<b>词频</b>学习：高频词排在前面单元，低频词在后面。设置估计词汇量（如 5000）后，词频排名前 5000 的简单词会<b>自动跳过</b>，直接从适合你难度的词开始。';
+    if (es2) $('#spEst').value = '';
+  }
+  spBook.addEventListener('change', syncBookLang);
+  syncBookLang();
   var speakOn = plan.autoSpeak !== false;
   $('#spSpeak').onclick = function(){ speakOn = !speakOn; this.classList.toggle('on', speakOn); };
   $('#spSave').onclick = function(){
@@ -1046,6 +1085,7 @@ function stuStart(mode, unit, label){
       mode: mode, unit: unit == null ? null : unit, label: label || (mode === 'review' ? '生词本复习' : '每日任务'),
       queue: d.questions.slice(), idx: 0, right: 0, wrong: 0, wrongWords: [], marks: [],
       autoSpeak: d.plan && d.plan.autoSpeak !== false, extra: d, lock: false, startedAt: Date.now(),
+      lang: d.lang === 'es' ? 'es' : 'en',
     };
     stu.view = 'session';
     renderStuQuestion();
@@ -1057,7 +1097,7 @@ function renderStuQuestion(){
   var q = s.queue[s.idx];
   if (stu.lastSpeak !== q.word) {
     stu.lastSpeak = q.word;
-    if (s.autoSpeak) setTimeout(function(){ if (stu.view === 'session') speak(q.word); }, 350);
+    if (s.autoSpeak) setTimeout(function(){ if (stu.view === 'session') speak(q.word, s.lang); }, 350);
   }
   var letters = ['A', 'B', 'C', 'D'];
   var total = s.queue.length;
@@ -1083,7 +1123,7 @@ function renderStuQuestion(){
     '<div id="sqFb"></div>' +
     '<div class="hint" style="margin-top:12px">⌨️ 键盘 1-4 也可作答 · 点单词可朗读 · 答错的词稍后会自动再出一次</div>' +
   '</div>';
-  $('#sqWord').onclick = function(){ speak(q.word); };
+  $('#sqWord').onclick = function(){ speak(q.word, s.lang); };
   $('#sqQuit').onclick = stuQuit;
   app.querySelectorAll('#sqOpts .opt').forEach(function(btn){
     btn.onclick = function(){ stuPick(+btn.getAttribute('data-i')); };
@@ -1171,7 +1211,7 @@ function renderStuSummary(){
     '<button class="btn ghost" id="ssHome">返回学习主页</button>' +
   '</div>';
   app.querySelectorAll('.wl-row .w').forEach(function(el){
-    el.onclick = function(){ speak(el.getAttribute('data-w') || el.textContent.replace('🔊 ', '')); };
+    el.onclick = function(){ speak(el.getAttribute('data-w') || el.textContent.replace('🔊 ', ''), s.lang); };
   });
   $('#ssAgain').onclick = function(){ stuStart(s.mode, s.unit, s.label); };
   $('#ssHome').onclick = function(){ renderStudy(); };
@@ -1364,12 +1404,12 @@ function renderGame(v){
     };
   });
   var rb = $('#replayBtn');
-  if (rb) rb.onclick = function(){ speak(q.word); };
+  if (rb) rb.onclick = function(){ speak(q.word, bookLangOf(v.settings && v.settings.bookId)); };
 
   // 听力模式自动朗读（每题一次）
   if (v.phase === 'question' && isListen && lastSpokenQ !== v.qIndex) {
     lastSpokenQ = v.qIndex;
-    setTimeout(function(){ if (cur && cur.phase === 'question') speak(q.word); }, 500);
+    setTimeout(function(){ if (cur && cur.phase === 'question') speak(q.word, bookLangOf(v.settings && v.settings.bookId)); }, 500);
   }
 
   // 倒计时条
@@ -1442,7 +1482,7 @@ function render(){
 /* ---------- 启动 ---------- */
 function boot(){
   loadLocalBooks().then(function(books){
-    if (books) BOOKS = books.map(function(b){ return { id: b.id, name: b.name, count: (b.words || []).length }; });
+    if (books) BOOKS = books.map(function(b){ return { id: b.id, name: b.name, count: (b.words || []).length, lang: b.lang || 'en' }; });
     else return api('/api/books').then(function(d){ BOOKS = d.books; }).catch(function(){});
   }).then(function(){
     return api('/api/info').then(function(d){ INFO = d; }).catch(function(){});

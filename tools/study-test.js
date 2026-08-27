@@ -44,7 +44,7 @@ async function main() {
   ok(reg.status === 200 && reg.data.token, '账号 A 注册成功');
   const tok = reg.data.token;
   const ov0 = await api('/api/study/overview?token=' + tok);
-  ok(ov0.status === 200 && ov0.data.plan === null && Array.isArray(ov0.data.books) && ov0.data.books.length === 12, '无计划时 plan=null 且返回 12 本词书');
+  ok(ov0.status === 200 && ov0.data.plan === null && Array.isArray(ov0.data.books) && ov0.data.books.length === 15, '无计划时 plan=null 且返回 15 本词书（含 AWL + 西语）');
 
   console.log('== 3. 无计划时取 session 应被拒 ==');
   const noSession = await api('/api/study/session?token=' + tok);
@@ -155,6 +155,30 @@ async function main() {
   await sleep(13500); // 等 PK 超时
   state = (await api('/api/state?roomId=' + rid + '&playerId=' + pid)).data;
   ok(state.phase === 'question' || state.phase === 'reveal' || state.phase === 'result', 'PK 单人房超时后阶段推进');
+
+  console.log('== 14.5 AWL 学术词书：keepOrder 顺序 + 语言 ==');
+  await api('/api/study/reset', { token: tok, scope: 'progress' }); // 清 today 日志，使新计划能出满额
+  const awlSrc = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'data', 'books.json'), 'utf8')).find((b) => b.id === 'awl');
+  const planAwl = await api('/api/study/plan', { token: tok, bookId: 'awl', dailyNew: 50, vocabEstimate: 0 });
+  ok(planAwl.status === 200 && planAwl.data.plan.bookId === 'awl', 'AWL 计划已保存');
+  ok(planAwl.data.total === 570, 'AWL 共 570 词（全部纳入，不跳过）');
+  const ssAwl = await api('/api/study/session?token=' + tok);
+  ok(ssAwl.data.lang === 'en', 'AWL session 语言标记为 en');
+  ok(ssAwl.data.questions.length === 50, 'AWL daily 返回 50 题');
+  const awlOrder = awlSrc.words.map((w) => String(w[0]).toLowerCase());
+  const qOrder = ssAwl.data.questions.map((q) => String(q.word).toLowerCase());
+  let awlOrdered = true;
+  for (let i = 0; i < qOrder.length; i++) if (qOrder[i] !== awlOrder[i]) { awlOrdered = false; break; }
+  ok(awlOrdered, 'AWL 保持 sublist 原始顺序（前 50 词与词书一致）');
+
+  console.log('== 14.6 西语词书 es-a1：语言 + 不受英语词频跳过 ==');
+  const planEs = await api('/api/study/plan', { token: tok, bookId: 'es-a1', dailyNew: 30, vocabEstimate: 5000 });
+  ok(planEs.status === 200 && planEs.data.plan.bookId === 'es-a1', '西语 es-a1 计划已保存');
+  ok(planEs.data.skipped === 0, '西语词不受英语词频跳过影响（skipped=0）');
+  const ssEs = await api('/api/study/session?token=' + tok);
+  ok(ssEs.data.lang === 'es', '西语 session 语言标记为 es');
+  ok(ssEs.data.questions.length === 30, '西语 daily 返回 30 题');
+  ok(ssEs.data.questions.every((q) => q.options.length === 4 && typeof q.correctIndex === 'number'), '西语每题结构完整（4 选项 + correctIndex）');
 
   console.log('== 15. 清理（本地） ==');
   const isLocal = BASE.startsWith('http://localhost') || BASE.startsWith('http://127.');

@@ -31,6 +31,7 @@ function splitMeaning(raw) {
 const books = JSON.parse(fs.readFileSync(SRC, 'utf8')).map((b) => ({
   id: b.id,
   name: b.name,
+  lang: b.lang || 'en',
   words: b.words.map(([word, meaning]) => [word, splitMeaning(meaning).clean]),
 }));
 const json = JSON.stringify(books);

@@ -132,12 +132,14 @@ function freqPos(word) {
   return 20000 + t * 100;
 }
 for (const b of BOOKS) {
+  if (!b.lang) b.lang = 'en'; // 词书语言：en 英语 / es 西班牙语（影响朗读发音）
   b._studyOrder = b._words.map((w, i) => {
     const k = String(w.word).toLowerCase();
-    if (!WORD_INFO.has(k)) WORD_INFO.set(k, { word: w.word, meaning: w.meaning, bookName: b.name, bookId: b.id });
+    if (!WORD_INFO.has(k)) WORD_INFO.set(k, { word: w.word, meaning: w.meaning, bookName: b.name, bookId: b.id, lang: b.lang });
     return { word: w.word, meaning: w.meaning, pos: freqPos(w.word), idx: i, posKey: k };
   });
-  b._studyOrder.sort((a, c) => a.pos - c.pos || a.idx - c.idx);
+  // keepOrder 词书（AWL 按 sublist 学术频率、西语按教学频率）保持原始顺序；其余按通用词频排序
+  if (!b.keepOrder) b._studyOrder.sort((a, c) => a.pos - c.pos || a.idx - c.idx);
 }
 
 /* 学习状态（挂在账号上，账号隔离持久化）：
@@ -160,7 +162,8 @@ function wordKey(w) { return String(w || '').trim().toLowerCase(); }
 /* 按预估词汇量过滤：频率位次 ≤ 估计值的视为「已会」，跳过学习 */
 function filterKnown(book, vocabEstimate) {
   const est = Math.max(0, Number(vocabEstimate) || 0);
-  if (!est) return { list: book._studyOrder, skipped: 0 };
+  // 预估词汇量针对「英语」；非英语词书（如西班牙语）无词频概念，不跳过任何词
+  if (!est || (book.lang && book.lang !== 'en')) return { list: book._studyOrder, skipped: 0 };
   const list = book._studyOrder.filter((w) => w.pos > est);
   return { list, skipped: book._studyOrder.length - list.length };
 }
@@ -184,7 +187,7 @@ function streakOf(st) {
 /* 学习总览（仪表盘数据） */
 function studyOverview(acc) {
   const st = getStudy(acc);
-  const out = { plan: null, books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length })) };
+  const out = { plan: null, books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })) };
   if (!st.plan) return out;
   const book = BOOKS.find((b) => b.id === st.plan.bookId) || BOOKS[0];
   const { list, skipped } = filterKnown(book, st.plan.vocabEstimate);
@@ -246,10 +249,10 @@ function wordInfoOf(word, preferBook) {
   const k = wordKey(word);
   if (preferBook) {
     const hit = preferBook._words.find((x) => wordKey(x.word) === k);
-    if (hit) return { meaning: hit.meaning, bookName: preferBook.name };
+    if (hit) return { meaning: hit.meaning, bookName: preferBook.name, lang: preferBook.lang };
   }
   const info = WORD_INFO.get(k);
-  return info ? { meaning: info.meaning, bookName: info.bookName } : null;
+  return info ? { meaning: info.meaning, bookName: info.bookName, lang: info.lang } : null;
 }
 /* 学习作答：更新进度 + SRS 排期 + 错题写入与 PK 共享的生词本 */
 function studyAnswer(acc, word, correct) {
@@ -281,7 +284,7 @@ function studyAnswer(acc, word, correct) {
       const list = acc.words = acc.words || [];
       const idx = list.findIndex((x) => wordKey(x.word) === k);
       if (idx >= 0) list.splice(idx, 1);
-      list.unshift({ word: String(word), meaning: info.meaning, book: info.bookName, at: now });
+      list.unshift({ word: String(word), meaning: info.meaning, book: info.bookName, lang: info.lang, at: now });
       if (list.length > 500) list.length = 500;
     }
     lg.wrong += 1;
@@ -467,7 +470,7 @@ function nextQuestion(room) {
 }
 
 /* 答错/超时的单词记入账号个人生词本（按账号隔离、去重，新词在前，最多 500 个） */
-function recordWrong(player, q, bookName, at) {
+function recordWrong(player, q, bookName, lang, at) {
   if (!player || !player.username) return;
   const account = accounts[String(player.username).toLowerCase()];
   if (!account) return;
@@ -475,7 +478,7 @@ function recordWrong(player, q, bookName, at) {
   const list = account.words = account.words || [];
   const idx = list.findIndex((x) => String(x.word).toLowerCase() === key);
   if (idx >= 0) list.splice(idx, 1);
-  list.unshift({ word: q.word, meaning: q.meaning, book: bookName || '', at });
+  list.unshift({ word: q.word, meaning: q.meaning, book: bookName || '', lang: lang || 'en', at });
   if (list.length > 500) list.length = 500;
   // PK 答错同步刷新学习进度：已学过的词记忆等级归零，尽快进入复习队列
   if (account.study && account.study.progress && account.study.progress[key]) {
@@ -491,16 +494,17 @@ function reveal(room) {
   room.phase = 'reveal';
   const q = room.questions[room.qIndex];
   const bookName = (BOOKS.find((b) => b.id === room.settings.bookId) || {}).name || '';
+  const bookLang = (BOOKS.find((b) => b.id === room.settings.bookId) || {}).lang || 'en';
   const now = Date.now();
   const results = {};
   for (const [pid, a] of room.answered) {
     const correct = a.choice === q.correctIndex;
     results[pid] = { choice: a.choice, correct, gained: a.gained };
-    if (!correct) recordWrong(room.players.get(pid), q, bookName, now);
+    if (!correct) recordWrong(room.players.get(pid), q, bookName, bookLang, now);
   }
   // 超时未答也算生词（在线玩家，或本题期间见过但中途掉线的玩家）
   for (const p of room.players.values()) {
-    if ((isOnline(p) || p.seenInRound) && !room.answered.has(p.id)) recordWrong(p, q, bookName, now);
+    if ((isOnline(p) || p.seenInRound) && !room.answered.has(p.id)) recordWrong(p, q, bookName, bookLang, now);
   }
   room.lastResult = { qIndex: room.qIndex, correctIndex: q.correctIndex, word: q.word, meaning: q.meaning, results };
   broadcast(room);
@@ -579,7 +583,7 @@ const server = http.createServer(async (req, res) => {
   const p = u.pathname;
   try {
     if (req.method === 'GET' && p === '/api/books') {
-      return send(res, 200, { books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length })) });
+      return send(res, 200, { books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })) });
     }
     if (req.method === 'GET' && p === '/api/info') {
       let publicUrl = '';
@@ -851,7 +855,7 @@ const server = http.createServer(async (req, res) => {
       let extra = {};
       if (mode === 'review') {
         const words = (acc.words || []).slice(0, 100); // 生词本复习：最近答错在前
-        queue = words.map((x) => ({ word: x.word, meaning: x.meaning }));
+        queue = words.map((x) => ({ word: x.word, meaning: x.meaning, lang: x.lang || 'en' }));
         extra = { wrongCount: (acc.words || []).length };
       } else if (mode === 'unit') {
         const unit = Math.max(0, Number(u.searchParams.get('unit')) || 0);
@@ -878,8 +882,12 @@ const server = http.createServer(async (req, res) => {
           .concat(reviews.map((r) => ({ word: r.word, meaning: r.meaning, isNew: false })));
         extra = { newCount: news.length, reviewCount: reviews.length, dailyNew: st.plan.dailyNew };
       }
-      const questions = queue.map((q) => Object.assign(genStudyQuestion(q, book), { isNew: q.isNew !== false && !!q.isNew }));
-      return send(res, 200, Object.assign({ mode, questions, bookName: book.name, plan: st.plan }, extra));
+      // 干扰项取自与该词同语言的词书（复习模式可能混入西语生词，避免出现跨语言选项）
+      const questions = queue.map((q) => {
+        const srcBook = (q.lang && q.lang !== book.lang && BOOKS.find((b) => b.lang === q.lang)) || book;
+        return Object.assign(genStudyQuestion(q, srcBook), { isNew: q.isNew !== false && !!q.isNew, lang: srcBook.lang });
+      });
+      return send(res, 200, Object.assign({ mode, questions, bookName: book.name, lang: book.lang, plan: st.plan }, extra));
     }
     if (req.method === 'POST' && p === '/api/study/answer') {
       const b = await readBody(req);

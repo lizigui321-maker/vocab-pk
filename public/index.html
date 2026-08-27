@@ -1559,6 +1559,7 @@ function renderStuQuestion(){
   var s = stu.sess;
   if (!s || s.idx >= s.queue.length) { renderStuSummary(); return; }
   var q = s.queue[s.idx];
+  q._shownAt = Date.now(); // 记录题目展示时间，用于答题速度感知 SRS
   if (stu.lastSpeak !== q.word) {
     stu.lastSpeak = q.word;
     if (s.autoSpeak) setTimeout(function(){ if (stu.view === 'session') speak(q.word, s.lang); }, 350);
@@ -1635,7 +1636,7 @@ function stuSpellSubmit(){
   if (!correct) {
     if (!s.wrongWords.some(function(w){ return w.word === q.word; })) s.wrongWords.push({ word: q.word, meaning: q.meaning, my: val });
   }
-  api('/api/study/answer', { token: token, word: q.word, correct: correct }, 'POST')
+  api('/api/study/answer', { token: token, word: q.word, correct: correct, ms: q._shownAt ? (Date.now() - q._shownAt) : 0 }, 'POST')
     .then(function(d){ if (d.mastered && !d.removed) toast('「' + q.word + '」已达到掌握等级 🎓'); })
     .catch(function(){});
   setTimeout(function(){
@@ -1690,7 +1691,7 @@ function stuPick(choice){
   if (fb) fb.innerHTML = correct
     ? '<div class="sfb ok">🎉 答对了！<small>' + esc(q.word) + ' · ' + esc(q.meaning) + '</small></div>'
     : '<div class="sfb bad">😅 答错了<small>正确释义：' + esc(q.meaning) + (q._rq <= 2 ? ' · 稍后再考你一次' : '') + '</small></div>';
-  api('/api/study/answer', { token: token, word: q.word, correct: correct }, 'POST')
+  api('/api/study/answer', { token: token, word: q.word, correct: correct, ms: q._shownAt ? (Date.now() - q._shownAt) : 0 }, 'POST')
     .then(function(d){
       if (d.removed) toast('「' + q.word + '」已连续答对 5 次，从生词本毕业 🎓');
       if (d.mastered && !d.removed) toast('「' + q.word + '」已达到掌握等级 🎓');

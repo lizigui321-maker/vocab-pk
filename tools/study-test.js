@@ -181,6 +181,20 @@ async function main() {
   ok(ssEs.data.questions.length === 30, '西语 daily 返回 30 题');
   ok(ssEs.data.questions.every((q) => q.options.length === 4 && typeof q.correctIndex === 'number'), '西语每题结构完整（4 选项 + correctIndex）');
 
+  console.log('== 14.7 答题速度感知 SRS：答快→间隔长，答慢→间隔短，不传用时→默认 ==');
+  await api('/api/study/reset', { token: tok, scope: 'progress' }); // 清进度+today，出满额新词
+  await api('/api/study/plan', { token: tok, bookId: 'cet6', dailyNew: 20, vocabEstimate: 0 });
+  const sss = await api('/api/study/session?token=' + tok);
+  const w1 = sss.data.questions[0].word, w2 = sss.data.questions[1].word, w3 = sss.data.questions[2].word;
+  const fAns = await api('/api/study/answer', { token: tok, word: w1, correct: true, ms: 1000 });
+  ok(fAns.data.ease === 1.5, '秒答(1s) → ease=1.5（间隔拉长，少复习）');
+  const sAns = await api('/api/study/answer', { token: tok, word: w2, correct: true, ms: 15000 });
+  ok(sAns.data.ease === 0.6, '犹豫(15s) → ease=0.6（间隔缩短，勤巩固）');
+  const nAns = await api('/api/study/answer', { token: tok, word: w3, correct: true }); // 不传 ms
+  ok(nAns.data.ease === 1, '不传用时 → ease=1（间隔不变，向后兼容）');
+  ok(fAns.data.due > sAns.data.due, '答得快的词下次复习更晚（间隔差 ' + Math.round((fAns.data.due - sAns.data.due) / 3600000 * 10) / 10 + ' 小时）');
+  ok(fAns.data.lv === 1 && sAns.data.lv === 1 && nAns.data.lv === 1, '速度感知只调间隔、不改等级（都 lv=1）');
+
   console.log('== 15. 熟词本 markKnown：移出 wrongbook + 进 known + 进度置满 ==');
   await api('/api/study/reset', { token: tok, scope: 'all' });
   await api('/api/known?token=' + tok, null, 'DELETE'); // 清理历史熟词，确保本段从 0 起算

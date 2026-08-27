@@ -301,7 +301,7 @@ function wordInfoOf(word, preferBook) {
   return info ? { meaning: info.meaning, bookName: info.bookName, lang: info.lang } : null;
 }
 /* 学习作答：更新进度 + SRS 排期 + 错题写入与 PK 共享的生词本 */
-function studyAnswer(acc, word, correct) {
+function studyAnswer(acc, word, correct, ms) {
   const st = getStudy(acc);
   const k = wordKey(word);
   const info = wordInfoOf(word, resolveBook(acc, st.plan && st.plan.bookId));
@@ -312,10 +312,19 @@ function studyAnswer(acc, word, correct) {
   if (!p) p = st.progress[k] = { lv: 0, n: 0, c: 0, wrong: 0, due: 0, firstAt: now, lastAt: now };
   p.n += 1; p.lastAt = now;
   let removed = false;
+  let ease = 1;
   if (correct) {
     p.c += 1;
     p.lv = Math.min((p.lv || 0) + 1, SRS_DAYS.length - 1);
-    p.due = now + SRS_DAYS[p.lv] * 86400000;
+    // 答题速度感知：记得牢（答得快）→ 间隔拉长，减少无谓复习；
+    // 犹豫（答得慢）→ 间隔缩短，及时巩固。等级规则不变（仍 lv+1）。
+    // 未提供用时（如自动化/旧客户端）时 ease=1，保持原间隔（向后兼容）。
+    if (typeof ms === 'number' && ms > 0) {
+      if (ms <= 2500) ease = 1.5;
+      else if (ms >= 8000 && ms <= 20000) ease = 0.6;
+      else ease = 1;
+    }
+    p.due = now + Math.round(SRS_DAYS[p.lv] * 86400000 * ease);
     // 达到掌握等级：从生词本毕业，并记入「熟词本」
     if (p.lv >= MASTER_LV) {
       if (Array.isArray(acc.words)) {
@@ -345,7 +354,7 @@ function studyAnswer(acc, word, correct) {
   }
   if (isNew) lg.new += 1; else lg.review += 1;
   saveAccounts();
-  return { ok: true, lv: p.lv, mastered: p.lv >= MASTER_LV, removed, isNew };
+  return { ok: true, lv: p.lv, due: p.due, ease: ease, mastered: p.lv >= MASTER_LV, removed, isNew };
 }
 
 /* ---------------- 工具 ---------------- */
@@ -1115,8 +1124,16 @@ const server = http.createServer(async (req, res) => {
         }
         dueList.sort((a, c) => a.due - c.due);
         const reviews = dueList.slice(0, 100);
-        queue = news.map((w) => ({ word: w.word, meaning: w.meaning, isNew: true }))
-          .concat(reviews.map((r) => ({ word: r.word, meaning: r.meaning, isNew: false })));
+        const newsItems = news.map((w) => ({ word: w.word, meaning: w.meaning, isNew: true }));
+        const revItems = reviews.map((r) => ({ word: r.word, meaning: r.meaning, isNew: false }));
+        // 交错出题：复习词与新词轮流出现，且复习词靠前（快忘的先救、再学新词），
+        // 比「先全部新词再全部复习」更符合间隔重复的记忆规律。
+        queue = [];
+        let ni = 0, ri = 0;
+        while (ri < revItems.length || ni < newsItems.length) {
+          if (ri < revItems.length) queue.push(revItems[ri++]);
+          if (ni < newsItems.length) queue.push(newsItems[ni++]);
+        }
         extra = { newCount: news.length, reviewCount: reviews.length, dailyNew: st.plan.dailyNew };
       }
       // 干扰项取自与该词同语言的词书（复习模式可能混入西语生词，避免出现跨语言选项）
@@ -1131,7 +1148,7 @@ const server = http.createServer(async (req, res) => {
       const acc = authUser(b.token);
       if (!acc) return send(res, 401, { error: '请先登录' });
       if (!b.word) return send(res, 400, { error: '缺少单词' });
-      return send(res, 200, studyAnswer(acc, b.word, !!b.correct));
+      return send(res, 200, studyAnswer(acc, b.word, !!b.correct, b.ms));
     }
     if (req.method === 'POST' && p === '/api/study/reset') {
       const b = await readBody(req);

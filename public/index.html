@@ -193,6 +193,7 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 <body>
 <div id="app"></div>
 <div class="toast" id="toast"></div>
+<script src="/books.bundle.js"></script>
 <script>
 'use strict';
 var $ = function(s){ return document.querySelector(s); };
@@ -214,9 +215,67 @@ var rafId = null;
 var lastSpokenQ = -1;
 var myLocalPick = null;   // 点击瞬间的本地高亮选项（服务器确认前兜底）
 var lastPickQ = -1;       // 本地高亮对应的题号
+var myLocalCorrect = null;   // 本地即时判题结果（null=未判定，true/false=已判定）
+var myLocalCorrectIdx = -1;  // 本地判定的正确选项位置
+var _bk = null;           // 已解码的本地词书
+var _bkReady = false;     // 本地词书是否已就绪（支持 DecompressionStream 且解码成功）
 
 /* ---------- 基础函数 ---------- */
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+/* ---------- 本地词书（答案内置浏览器，防 F12 直读；老浏览器自动降级为服务器判题） ---------- */
+var _BK_KEY = String.fromCharCode(86,79,67,65,66,80,75,95,83,51,67,82,69,84,95,75,69,89); // VOCABPK_S3CRET_KEY
+function decodeBooks(b64){
+  var bin = atob(b64);
+  var bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) ^ _BK_KEY.charCodeAt(i % _BK_KEY.length);
+  var ds = new DecompressionStream('deflate');
+  var stream = new Blob([bytes]).stream().pipeThrough(ds);
+  return new Response(stream).arrayBuffer().then(function(buf){
+    return JSON.parse(new TextDecoder('utf-8').decode(buf));
+  });
+}
+function loadLocalBooks(){
+  if (_bkReady) return Promise.resolve(_bk);
+  if (!window.__VOCAB_BOOKS__) return Promise.resolve(null);
+  try {
+    return decodeBooks(window.__VOCAB_BOOKS__).then(function(books){
+      _bk = books; _bkReady = true; return books;
+    }).catch(function(){ _bkReady = true; _bk = null; return null; });
+  } catch (e) {
+    return Promise.resolve(null); // DecompressionStream 不可用 → 保持服务器判题
+  }
+}
+// 本地判题：在词书里查 word 的释义，返回其在选项中的位置；查不到返回 -1
+function localCorrectIdx(word, bookId, options){
+  if (!_bk || !word || !options || !options.length) return -1;
+  var list = null;
+  if (bookId) {
+    for (var i = 0; i < _bk.length; i++) if (_bk[i].id === bookId) { list = _bk[i].words; break; }
+  }
+  var meaning = null;
+  if (list) {
+    for (var j = 0; j < list.length; j++) if (list[j][0] === word) { meaning = list[j][1]; break; }
+  }
+  if (meaning === null) { // 兜底：整库查找
+    for (var a = 0; a < _bk.length && meaning === null; a++) {
+      var wl = _bk[a].words;
+      for (var b = 0; b < wl.length; b++) if (wl[b][0] === word) { meaning = wl[b][1]; break; }
+    }
+  }
+  if (meaning === null) return -1;
+  return options.indexOf(meaning);
+}
+function applyLocalJudge(v){
+  if (!v || !v.question) return;
+  var lc = localCorrectIdx(v.question.word, v.settings && v.settings.bookId, v.question.options);
+  if (lc >= 0) {
+    myLocalCorrect = (myLocalPick === lc);
+    myLocalCorrectIdx = lc;
+    renderGame(v);
+  }
+}
+
 function toast(msg){
   var t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('show'); }, 2600);
@@ -319,7 +378,7 @@ function leaveRoom(){
   stopPolling();
   sseAlive = false;
   lastStateStr = '';
-  session = null; cur = null; lastSpokenQ = -1; myLocalPick = null; lastPickQ = -1;
+  session = null; cur = null; lastSpokenQ = -1; myLocalPick = null; lastPickQ = -1; myLocalCorrect = null; myLocalCorrectIdx = -1;
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   page = 'home';
   renderHome();
@@ -781,14 +840,17 @@ function renderGame(v){
       '<span class="sc">' + p.score + '</span></div>';
   }).join('');
   // 本地乐观高亮：换题时清空；服务器已确认的选择优先
-  if (lastPickQ !== v.qIndex) { myLocalPick = null; lastPickQ = v.qIndex; }
+  if (lastPickQ !== v.qIndex) { myLocalPick = null; myLocalCorrect = null; myLocalCorrectIdx = -1; lastPickQ = v.qIndex; }
   var serverChoice = (q.myChoice !== null && q.myChoice !== undefined) ? q.myChoice : null;
   var myChoice = serverChoice !== null ? serverChoice : myLocalPick;
   var answered = v.phase === 'question' && myChoice !== null;
-  // 我已答且服务器已回传结果 → 立即显示对错
-  var myRes = answered && q.myCorrect !== undefined && q.myCorrect !== null
-    ? { correct: q.myCorrect, gained: q.myGained, correctIndex: q.correctIndex, choice: myChoice }
-    : null;
+  // 显示结果：服务器已回传 → 以服务器为准（含分数）；否则用本地即时判定兜底（秒反馈）
+  var myRes = null;
+  if (answered && q.myCorrect !== undefined && q.myCorrect !== null) {
+    myRes = { correct: q.myCorrect, gained: q.myGained, correctIndex: q.correctIndex, choice: myChoice };
+  } else if (answered && myLocalCorrect !== null && lastPickQ === v.qIndex) {
+    myRes = { correct: myLocalCorrect, gained: null, correctIndex: myLocalCorrectIdx, choice: myLocalPick };
+  }
   var letters = ['A','B','C','D'];
 
   var centerHtml;
@@ -836,7 +898,9 @@ function renderGame(v){
   if (v.phase === 'question' && answered) {
     if (myRes) {
       waitHtml = myRes.correct
-        ? '<div class="myfb ok">🎉 答对了！+<b>' + myRes.gained + '</b> 分（基础 100 + 速度加成 ' + (myRes.gained - 100) + '）</div>'
+        ? (myRes.gained != null
+            ? '🎉 答对了！+<b>' + myRes.gained + '</b> 分（基础 100 + 速度加成 ' + (myRes.gained - 100) + '）'
+            : '🎉 答对了！得分结算中…')
         : '<div class="myfb bad">😅 答错了，正确答案已标绿</div>';
     } else {
       waitHtml = '<div class="waiting">已作答，等待其他玩家…（答得越快加成越高）</div>';
@@ -871,8 +935,15 @@ function renderGame(v){
       answered = true;
       myLocalPick = +btn.getAttribute('data-i');  // 立即本地高亮，不等服务器
       lastPickQ = v.qIndex;
-      btn.classList.add('picked');
-      btn.disabled = true;
+      // 本地即时判题：词书已就绪立即亮对错，否则等词书加载完成（通常已预加载好）
+      if (_bkReady) {
+        applyLocalJudge(v);
+      } else {
+        loadLocalBooks().then(function(){
+          if (!session || lastPickQ !== v.qIndex) return;
+          applyLocalJudge(cur || v);
+        });
+      }
       api('/api/answer', { roomId: session.roomId, playerId: session.playerId, qIndex: v.qIndex, choice: myLocalPick })
         .catch(function(e){ toast(e.message); });
     };
@@ -955,10 +1026,12 @@ function render(){
 
 /* ---------- 启动 ---------- */
 function boot(){
-  Promise.all([
-    api('/api/books').then(function(d){ BOOKS = d.books; }).catch(function(){}),
-    api('/api/info').then(function(d){ INFO = d; }).catch(function(){}),
-  ]).then(function(){
+  loadLocalBooks().then(function(books){
+    if (books) BOOKS = books.map(function(b){ return { id: b.id, name: b.name, count: (b.words || []).length }; });
+    else return api('/api/books').then(function(d){ BOOKS = d.books; }).catch(function(){});
+  }).then(function(){
+    return api('/api/info').then(function(d){ INFO = d; }).catch(function(){});
+  }).then(function(){
     if (!token) { renderAuth(); return; }
     // 已有令牌：校验有效性并取回账号信息
     return api('/api/me?token=' + encodeURIComponent(token), null, 'GET')

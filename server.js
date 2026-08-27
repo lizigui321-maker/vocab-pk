@@ -82,8 +82,9 @@ const TIERS = [
   { id: 'toefl', name: '托福' },
 ];
 const tierWords = TIERS.map(() => []);
+const WORD_TIER = new Map(); // 小写单词 -> 难度层（0=中考最高频 … 6=托福），取所属最低（最高频）层
 {
-  const tierOf = new Map();
+  const tierOf = WORD_TIER;
   for (let t = 0; t < TIERS.length; t++) {
     const book = BOOKS.find((b) => b.id === TIERS[t].id);
     if (!book) continue;
@@ -101,6 +102,194 @@ const TIER_SAMPLE = 6; // 每层抽 6 题，共 42 题
 const ALL_TIER_WORDS = tierWords.flat(); // 词汇量测试干扰释义候选池
 
 const rooms = new Map();
+
+/* ================= 背单词 · 学习模块（计划 / 词频排序 / 单元 / SRS 复习） ================= */
+const UNIT_SIZE = 50;                                  // 每单元词数
+const MASTER_LV = 5;                                   // 连续答对 5 级 = 已掌握
+const SRS_DAYS = [0, 1, 2, 4, 7, 15, 30, 60];          // 掌握等级 -> 复习间隔（天），索引即等级
+const WRONG_REDUE = 10 * 60 * 1000;                    // 答错后 10 分钟进入复习队列
+
+/* 词频表（google-10000 语料，按频率从高到低）；加载失败自动用难度层级兜底 */
+const FREQ = (() => {
+  try {
+    const list = JSON.parse(fs.readFileSync(path.join(PUB, 'data', 'freq.json'), 'utf8'));
+    const m = new Map();
+    for (let i = 0; i < list.length; i++) m.set(String(list[i]).toLowerCase(), i + 1);
+    return m;
+  } catch (e) { return new Map(); }
+})();
+
+/* 全局单词信息表：小写词 -> {word, meaning, bookName, pos}（首个收录的书优先） */
+const WORD_INFO = new Map();
+
+/* 单词的全局频率位次：词频表命中 → 真实词频(1..N)；未命中 → 20000+难度层*100；完全未知 → 30000 */
+function freqPos(word) {
+  const k = String(word).toLowerCase();
+  const r = FREQ.get(k);
+  if (r) return r;
+  const t = WORD_TIER.get(k);
+  if (t === undefined) return 30000;
+  return 20000 + t * 100;
+}
+for (const b of BOOKS) {
+  b._studyOrder = b._words.map((w, i) => {
+    const k = String(w.word).toLowerCase();
+    if (!WORD_INFO.has(k)) WORD_INFO.set(k, { word: w.word, meaning: w.meaning, bookName: b.name, bookId: b.id });
+    return { word: w.word, meaning: w.meaning, pos: freqPos(w.word), idx: i, posKey: k };
+  });
+  b._studyOrder.sort((a, c) => a.pos - c.pos || a.idx - c.idx);
+}
+
+/* 学习状态（挂在账号上，账号隔离持久化）：
+ * study = { plan:{bookId,dailyNew,vocabEstimate,autoSpeak}, progress:{词:{lv,n,c,wrong,due,firstAt,lastAt}}, log:{"YYYY-MM-DD":{new,review,wrong}} }
+ */
+function getStudy(acc) {
+  if (!acc.study || typeof acc.study !== 'object') acc.study = { plan: null, progress: {}, log: {} };
+  if (!acc.study.progress) acc.study.progress = {};
+  if (!acc.study.log) acc.study.log = {};
+  if (Array.isArray(acc.study.plan)) acc.study.plan = null; // 兼容历史脏数据
+  return acc.study;
+}
+function dayKey(ts) {
+  const d = new Date(ts);
+  const p = (n) => (n < 10 ? '0' + n : '' + n);
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function wordKey(w) { return String(w || '').trim().toLowerCase(); }
+
+/* 按预估词汇量过滤：频率位次 ≤ 估计值的视为「已会」，跳过学习 */
+function filterKnown(book, vocabEstimate) {
+  const est = Math.max(0, Number(vocabEstimate) || 0);
+  if (!est) return { list: book._studyOrder, skipped: 0 };
+  const list = book._studyOrder.filter((w) => w.pos > est);
+  return { list, skipped: book._studyOrder.length - list.length };
+}
+function todayLog(st) {
+  const k = dayKey(Date.now());
+  if (!st.log[k]) st.log[k] = { new: 0, review: 0, wrong: 0 };
+  return st.log[k];
+}
+function streakOf(st) {
+  const days = new Set(Object.keys(st.log).filter((d) => st.log[d].new + st.log[d].review > 0));
+  if (!days.size) return 0;
+  let streak = 0;
+  const cur = new Date();
+  if (!days.has(dayKey(cur.getTime()))) {
+    cur.setDate(cur.getDate() - 1); // 今天还没学：从昨天往前算（昨天没学则连击清零）
+    if (!days.has(dayKey(cur.getTime()))) return 0;
+  }
+  while (days.has(dayKey(cur.getTime()))) { streak += 1; cur.setDate(cur.getDate() - 1); }
+  return streak;
+}
+/* 学习总览（仪表盘数据） */
+function studyOverview(acc) {
+  const st = getStudy(acc);
+  const out = { plan: null, books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length })) };
+  if (!st.plan) return out;
+  const book = BOOKS.find((b) => b.id === st.plan.bookId) || BOOKS[0];
+  const { list, skipped } = filterKnown(book, st.plan.vocabEstimate);
+  const now = Date.now();
+  const lg = todayLog(st);
+  let learned = 0, mastered = 0, due = 0;
+  const inBook = new Set(list.map((w) => w.posKey));
+  for (const [k, p] of Object.entries(st.progress)) {
+    if (!p || !p.n) continue;
+    if (inBook.has(k)) learned += 1;
+    if (p.lv >= MASTER_LV) mastered += 1;
+    else if (p.lv > 0 && p.due && p.due <= now) due += 1;
+  }
+  const units = [];
+  for (let i = 0; i < list.length; i += UNIT_SIZE) {
+    const seg = list.slice(i, i + UNIT_SIZE);
+    let uLearned = 0;
+    for (const w of seg) { const p = st.progress[w.posKey]; if (p && p.n) uLearned += 1; }
+    units.push({ index: units.length, total: seg.length, learned: uLearned, first: seg[0].word, last: seg[seg.length - 1].word });
+  }
+  // 最近 30 天日志（含空白天，供日历条渲染）
+  const log30 = [];
+  const d = new Date();
+  d.setDate(d.getDate() - 29);
+  for (let i = 0; i < 30; i++) {
+    const k = dayKey(d.getTime());
+    const e = st.log[k];
+    log30.push({ date: k, new: (e && e.new) || 0, review: (e && e.review) || 0, wrong: (e && e.wrong) || 0 });
+    d.setDate(d.getDate() + 1);
+  }
+  return {
+    plan: st.plan, bookId: book.id, bookName: book.name,
+    total: list.length, rawTotal: book.words.length, skipped, unitSize: UNIT_SIZE,
+    learned, mastered, due, wrongCount: (acc.words || []).length,
+    today: { new: lg.new, review: lg.review, wrong: lg.wrong, dailyNew: st.plan.dailyNew, newRemaining: Math.max(0, st.plan.dailyNew - lg.new) },
+    streak: streakOf(st), units, log30,
+  };
+}
+/* 生成一道学习选择题（英文题干 + 4 个中文选项，干扰项优先同词性） */
+function genStudyQuestion(w, book) {
+  let candidates = [];
+  const k = wordKey(w.word);
+  const orig = book._words.find((x) => wordKey(x.word) === k);
+  if (orig && orig.pos && book._byPos.has(orig.pos)) {
+    candidates = book._byPos.get(orig.pos).filter((x) => x.word !== w.word && x.meaning !== w.meaning);
+  }
+  if (candidates.length < 3) candidates = candidates.concat(book._words.filter((x) => x.word !== w.word && x.meaning !== w.meaning));
+  const seen = new Set([w.meaning]);
+  const distract = [];
+  for (const x of shuffle(candidates)) {
+    if (seen.has(x.meaning)) continue;
+    seen.add(x.meaning); distract.push(x.meaning);
+    if (distract.length === 3) break;
+  }
+  const options = shuffle([w.meaning, ...distract]);
+  return { word: w.word, meaning: w.meaning, options, correctIndex: options.indexOf(w.meaning) };
+}
+function wordInfoOf(word, preferBook) {
+  const k = wordKey(word);
+  if (preferBook) {
+    const hit = preferBook._words.find((x) => wordKey(x.word) === k);
+    if (hit) return { meaning: hit.meaning, bookName: preferBook.name };
+  }
+  const info = WORD_INFO.get(k);
+  return info ? { meaning: info.meaning, bookName: info.bookName } : null;
+}
+/* 学习作答：更新进度 + SRS 排期 + 错题写入与 PK 共享的生词本 */
+function studyAnswer(acc, word, correct) {
+  const st = getStudy(acc);
+  const k = wordKey(word);
+  const info = wordInfoOf(word, BOOKS.find((b) => b.id === (st.plan && st.plan.bookId)));
+  const now = Date.now();
+  const lg = todayLog(st);
+  let p = st.progress[k];
+  const isNew = !p || !p.n;
+  if (!p) p = st.progress[k] = { lv: 0, n: 0, c: 0, wrong: 0, due: 0, firstAt: now, lastAt: now };
+  p.n += 1; p.lastAt = now;
+  let removed = false;
+  if (correct) {
+    p.c += 1;
+    p.lv = Math.min((p.lv || 0) + 1, SRS_DAYS.length - 1);
+    p.due = now + SRS_DAYS[p.lv] * 86400000;
+    // 达到掌握等级且已在生词本 → 毕业，自动移出生词本
+    if (p.lv >= MASTER_LV && Array.isArray(acc.words)) {
+      const before = acc.words.length;
+      acc.words = acc.words.filter((x) => wordKey(x.word) !== k);
+      removed = before !== acc.words.length;
+    }
+  } else {
+    p.wrong = (p.wrong || 0) + 1;
+    p.lv = 0;
+    p.due = now + WRONG_REDUE;
+    if (info) {
+      const list = acc.words = acc.words || [];
+      const idx = list.findIndex((x) => wordKey(x.word) === k);
+      if (idx >= 0) list.splice(idx, 1);
+      list.unshift({ word: String(word), meaning: info.meaning, book: info.bookName, at: now });
+      if (list.length > 500) list.length = 500;
+    }
+    lg.wrong += 1;
+  }
+  if (isNew) lg.new += 1; else lg.review += 1;
+  saveAccounts();
+  return { ok: true, lv: p.lv, mastered: p.lv >= MASTER_LV, removed, isNew };
+}
 
 /* ---------------- 工具 ---------------- */
 function uid() { return crypto.randomBytes(8).toString('hex'); }
@@ -288,6 +477,11 @@ function recordWrong(player, q, bookName, at) {
   if (idx >= 0) list.splice(idx, 1);
   list.unshift({ word: q.word, meaning: q.meaning, book: bookName || '', at });
   if (list.length > 500) list.length = 500;
+  // PK 答错同步刷新学习进度：已学过的词记忆等级归零，尽快进入复习队列
+  if (account.study && account.study.progress && account.study.progress[key]) {
+    const pr = account.study.progress[key];
+    pr.lv = 0; pr.wrong = (pr.wrong || 0) + 1; pr.due = Date.now() + WRONG_REDUE;
+  }
   saveAccounts();
 }
 
@@ -621,6 +815,88 @@ const server = http.createServer(async (req, res) => {
         if (i >= 0) you = { rank: i + 1, name: vocabRank[i].name, best: vocabRank[i].best, latest: vocabRank[i].latest, count: vocabRank[i].count, at: vocabRank[i].at };
       }
       return send(res, 200, { list, you });
+    }
+    /* ---------------- 背单词：学习计划 / 出题 / 作答 / 统计 ---------------- */
+    if (req.method === 'GET' && p === '/api/study/overview') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      return send(res, 200, studyOverview(acc));
+    }
+    if (req.method === 'POST' && p === '/api/study/plan') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const st = getStudy(acc);
+      const bookId = BOOKS.some((x) => x.id === b.bookId) ? b.bookId : (st.plan && st.plan.bookId) || BOOKS[0].id;
+      const dailyNew = [10, 20, 30, 50, 100].includes(Number(b.dailyNew)) ? Number(b.dailyNew) : (st.plan && st.plan.dailyNew) || 20;
+      let vocabEstimate = Math.max(0, Math.min(30000, Math.round(Number(b.vocabEstimate) || 0)));
+      st.plan = {
+        bookId, dailyNew, vocabEstimate,
+        autoSpeak: b.autoSpeak === undefined ? (st.plan ? st.plan.autoSpeak !== false : true) : b.autoSpeak !== false,
+      };
+      saveAccounts();
+      const book = BOOKS.find((x) => x.id === bookId);
+      const { skipped } = filterKnown(book, vocabEstimate);
+      return send(res, 200, { ok: true, plan: st.plan, skipped, total: book.words.length - skipped, bookName: book.name });
+    }
+    if (req.method === 'GET' && p === '/api/study/session') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const st = getStudy(acc);
+      if (!st.plan) return send(res, 400, { error: '请先设置学习计划' });
+      const book = BOOKS.find((x) => x.id === st.plan.bookId) || BOOKS[0];
+      const mode = u.searchParams.get('mode') === 'unit' ? 'unit' : (u.searchParams.get('mode') === 'review' ? 'review' : 'daily');
+      const now = Date.now();
+      let queue = [];
+      let extra = {};
+      if (mode === 'review') {
+        const words = (acc.words || []).slice(0, 100); // 生词本复习：最近答错在前
+        queue = words.map((x) => ({ word: x.word, meaning: x.meaning }));
+        extra = { wrongCount: (acc.words || []).length };
+      } else if (mode === 'unit') {
+        const unit = Math.max(0, Number(u.searchParams.get('unit')) || 0);
+        const { list } = filterKnown(book, st.plan.vocabEstimate);
+        const maxUnit = Math.max(0, Math.ceil(list.length / UNIT_SIZE) - 1);
+        if (unit > maxUnit) return send(res, 400, { error: '单元不存在' });
+        const seg = list.slice(unit * UNIT_SIZE, (unit + 1) * UNIT_SIZE);
+        queue = seg.map((w) => ({ word: w.word, meaning: w.meaning }));
+        extra = { unit, unitTotal: seg.length };
+      } else {
+        const { list } = filterKnown(book, st.plan.vocabEstimate);
+        const lg = todayLog(st);
+        const newRemaining = Math.max(0, st.plan.dailyNew - lg.new);
+        const news = list.filter((w) => { const pr = st.progress[w.posKey]; return !pr || !pr.n; }).slice(0, newRemaining);
+        const dueList = [];
+        for (const [k, pr] of Object.entries(st.progress)) {
+          if (!pr || !pr.n || pr.lv <= 0 || pr.lv >= MASTER_LV || !pr.due || pr.due > now) continue;
+          const info = WORD_INFO.get(k);
+          if (info) dueList.push({ word: info.word, meaning: info.meaning, due: pr.due });
+        }
+        dueList.sort((a, c) => a.due - c.due);
+        const reviews = dueList.slice(0, 100);
+        queue = news.map((w) => ({ word: w.word, meaning: w.meaning, isNew: true }))
+          .concat(reviews.map((r) => ({ word: r.word, meaning: r.meaning, isNew: false })));
+        extra = { newCount: news.length, reviewCount: reviews.length, dailyNew: st.plan.dailyNew };
+      }
+      const questions = queue.map((q) => Object.assign(genStudyQuestion(q, book), { isNew: q.isNew !== false && !!q.isNew }));
+      return send(res, 200, Object.assign({ mode, questions, bookName: book.name, plan: st.plan }, extra));
+    }
+    if (req.method === 'POST' && p === '/api/study/answer') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      if (!b.word) return send(res, 400, { error: '缺少单词' });
+      return send(res, 200, studyAnswer(acc, b.word, !!b.correct));
+    }
+    if (req.method === 'POST' && p === '/api/study/reset') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      if (b.scope === 'all') acc.study = { plan: null, progress: {}, log: {} };
+      else if (b.scope === 'plan') { const st = getStudy(acc); st.plan = null; }
+      else { const st = getStudy(acc); st.progress = {}; st.log = {}; } // scope=progress
+      saveAccounts();
+      return send(res, 200, { ok: true });
     }
     return serveStatic(req, res);
   } catch (e) {

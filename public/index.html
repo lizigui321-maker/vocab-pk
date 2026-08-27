@@ -45,6 +45,8 @@
 .hero .hbtn{ display:inline-block; background:var(--brand); color:#fff; border:none; border-radius:15px; padding:14px 28px; font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 6px 16px rgba(0,122,255,.22); position:relative; transition:transform .12s var(--ease), box-shadow .12s var(--ease); }
 .hero .hbtn:active{ transform:scale(.96); }
 .hero .hbtn-ghost{ background:#fff; color:var(--brand); border:1.5px solid var(--brand); box-shadow:none; }
+.hero .hbtns{ display:flex; flex-direction:column; gap:10px; }
+.hero .hbtns .hbtn{ width:100%; text-align:center; box-sizing:border-box; margin:0; }
 .hero .hstats{ display:flex; gap:10px; margin-bottom:18px; position:relative; }
 .hero .hstat{ background:rgba(0,122,255,.08); border-radius:16px; padding:10px 8px; flex:1; text-align:center; }
 .hero .hstat b{ display:block; font-size:20px; font-weight:700; color:var(--ink); }
@@ -352,6 +354,40 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .invite-banner .copybtn{padding:9px 12px;font-size:13px;margin-top:0}
 [data-theme="dark"] .overlay{background:rgba(0,0,0,.55)}
 [data-theme="dark"] .invite-banner{box-shadow:0 16px 40px rgba(0,0,0,.5)}
+/* ---------- 手机端布局适配 ---------- */
+.inline-form{ display:flex; flex-direction:column; gap:10px; margin-top:6px; }
+.inline-form input{ width:100%; }
+.inline-form .btn{ width:100%; margin-top:0; }
+.btn-row{ display:flex; flex-direction:column; gap:10px; }
+.btn-row .btn{ width:100%; margin-top:0; }
+.forgot-row{ text-align:right; margin:8px 0 4px; }
+.forgot-row a{ font-size:13px; color:var(--brand); cursor:pointer; }
+@media (min-width:481px){
+  .hero{ padding:28px 24px; }
+  .hero .hbtns{ flex-direction:row; }
+  .hero .hbtns .hbtn{ width:auto; flex:1; }
+  .inline-form{ flex-direction:row; align-items:stretch; }
+  .inline-form input{ flex:1; width:auto; }
+  .inline-form .btn{ width:auto; padding-left:24px; padding-right:24px; }
+  .btn-row{ flex-direction:row; }
+  .btn-row .btn{ flex:1; }
+}
+@media (max-width:480px){
+  .hero{ padding:22px 18px; border-radius:22px; }
+  .hero h2{ font-size:24px; }
+  h1{ font-size:24px; }
+  .tagline{ font-size:12.5px; margin-bottom:18px; }
+  .card{ padding:18px; }
+  .topbar{ padding:10px 14px; margin:-18px -14px 14px; }
+  #app{ padding:18px 14px 46px; }
+  .qwrap{ padding:22px 16px; }
+  .word{ font-size:34px; }
+  .stu-today{ flex-direction:column; align-items:flex-start; gap:10px; }
+  .stu-ring{ width:78px; height:78px; }
+  .roomcode-big{ font-size:38px; letter-spacing:8px; }
+  .scores{ justify-content:center; }
+  .vt-btns button{ padding:13px 0; font-size:15px; }
+}
 </style>
 </head>
 <body>
@@ -594,6 +630,14 @@ function renderAuth(){
     '<input type="text" id="userInput" maxlength="16" placeholder="3-16 位字母/数字/下划线" autocapitalize="off" spellcheck="false">' +
     '<label class="fl">密码</label>' +
     '<input type="password" id="passInput" maxlength="32" placeholder="至少 6 位">' +
+    '<div class="forgot-row"><a id="forgotLink">忘记密码？</a></div>' +
+    '<div id="forgotCard" class="hint" style="display:none">' +
+      '<b>如何找回/重置密码？</b><br>' +
+      '· 本应用没有收集邮箱或手机号，无法自助邮件找回。<br>' +
+      '· 如果你当前设备仍保持登录：去「设置 → 账号 → 修改密码」直接重置。<br>' +
+      '· 如果所有设备都已退出，请联系管理员重置密码。' +
+      '<button class="btn ghost" id="forgotClose" style="margin-top:10px">我知道了</button>' +
+    '</div>' +
     '<div id="nameWrap" style="display:none">' +
       '<label class="fl">昵称（游戏中显示，可随时修改）</label>' +
       '<input type="text" id="nickInput" maxlength="12" placeholder="给自己起个名字">' +
@@ -628,6 +672,9 @@ function renderAuth(){
         .then(onAuthed).catch(function(e){ toast(e.message); restore(); });
     }
   };
+  var forgotCard = $('#forgotCard');
+  $('#forgotLink').onclick = function(e){ e.preventDefault(); forgotCard.style.display = ''; };
+  $('#forgotClose').onclick = function(){ forgotCard.style.display = 'none'; };
 }
 
 /* ---------- 首页 ---------- */
@@ -690,13 +737,15 @@ function renderHome(){
             '<div class="hstat"><b>' + (ov.mastered || 0) + '</b><span>已掌握</span></div>' +
           '</div>' +
           '<div style="font-weight:800;font-size:15px;margin-bottom:4px">📚 ' + esc(ov.bookName) + '</div>' +
-          '<button class="hbtn" id="hStudy">继续背单词 ▸</button> ' +
-          '<button class="hbtn hbtn-ghost" id="hReview">🎯 复习生词本</button>';
+          '<div class="hbtns">' +
+            '<button class="hbtn" id="hStudy">继续背单词 ▸</button>' +
+            '<button class="hbtn hbtn-ghost" id="hReview">🎯 复习生词本</button>' +
+          '</div>';
       } else {
         hero =
           '<h2>📚 背单词</h2>' +
           '<div class="sub">按词频科学排序 · 间隔重复记忆 · 支持西语</div>' +
-          '<button class="hbtn" id="hStudy">开始制定计划 ▸</button>';
+          '<div class="hbtns"><button class="hbtn" id="hStudy">开始制定计划 ▸</button></div>';
       }
       app.innerHTML = topbar +
         '<div class="hero">' + hero + '</div>' +
@@ -775,6 +824,14 @@ function renderSettings(){
         '<label class="fl">昵称（游戏中显示，最多 12 字）</label>' +
         '<input type="text" id="setNick" maxlength="12" value="' + esc(account ? account.name : '') + '">' +
         '<button class="btn ghost" id="setNickSave" style="margin-top:14px">保存昵称</button>' +
+        '<div class="danger-zone" id="pwdZone" style="display:none">' +
+          '<label class="fl">修改密码</label>' +
+          '<input type="password" id="oldPwd" placeholder="当前密码">' +
+          '<input type="password" id="newPwd" maxlength="32" placeholder="新密码（至少 6 位）">' +
+          '<input type="password" id="newPwd2" maxlength="32" placeholder="再输一次新密码">' +
+          '<button class="btn" id="setPwdSave" style="margin-top:14px">确认修改密码</button>' +
+        '</div>' +
+        '<button class="btn ghost" id="pwdToggle" style="margin-top:14px">🔒 修改密码</button>' +
       '</div>';
       $('#setBack').onclick = function(){ page = 'home'; renderHome(); };
       var dailySeg = $('#spDaily'), estSeg = $('#spEstQuick');
@@ -824,6 +881,24 @@ function renderSettings(){
         var btn = this; btn.disabled = true;
         api('/api/me', { token: token, name: nn }, 'POST')
           .then(function(d){ account.name = d.name; toast('昵称已更新'); btn.disabled = false; })
+          .catch(function(e){ toast(e.message); btn.disabled = false; });
+      };
+      $('#pwdToggle').onclick = function(){
+        var zone = $('#pwdZone');
+        var showing = zone.style.display !== 'none';
+        zone.style.display = showing ? 'none' : '';
+        this.textContent = showing ? '🔒 修改密码' : '◂ 收起修改密码';
+      };
+      $('#setPwdSave').onclick = function(){
+        var oldPwd = $('#oldPwd').value;
+        var newPwd = $('#newPwd').value;
+        var newPwd2 = $('#newPwd2').value;
+        if (!oldPwd) { toast('请输入当前密码'); return; }
+        if (newPwd.length < 6) { toast('新密码至少 6 位'); return; }
+        if (newPwd !== newPwd2) { toast('两次输入的新密码不一致'); return; }
+        var btn = this; btn.disabled = true;
+        api('/api/me/password', { token: token, oldPassword: oldPwd, newPassword: newPwd }, 'POST')
+          .then(function(d){ toast('密码已修改'); btn.disabled = false; $('#oldPwd').value = ''; $('#newPwd').value = ''; $('#newPwd2').value = ''; $('#pwdZone').style.display = 'none'; $('#pwdToggle').textContent = '🔒 修改密码'; })
           .catch(function(e){ toast(e.message); btn.disabled = false; });
       };
     })
@@ -894,8 +969,8 @@ function renderFriends(){
     '<div class="tagline">添加好友后，可在小组里互看打卡，也能一键邀请 TA 进房间 PK</div>' +
     '<div class="card">' +
       '<label class="fl">好友用户名（@ 后面的那串，3-16 位字母/数字/下划线）</label>' +
-      '<div style="display:flex;gap:8px"><input type="text" id="fUser" placeholder="例如：xiaoming" style="flex:1;padding:12px;border:1.5px solid #e5e7eb;border-radius:12px;font-size:15px">' +
-      '<button class="btn" id="addF" style="white-space:nowrap">添加</button></div>' +
+      '<div class="inline-form"><input type="text" id="fUser" placeholder="例如：xiaoming">' +
+      '<button class="btn" id="addF">添加</button></div>' +
       '<div id="fList" class="cb-list"><div class="wb-empty">还没有好友，添加试试～</div></div>' +
     '</div>' +
     '<div class="card" style="padding:14px"><button class="btn ghost" id="bh2">返回首页</button></div>';
@@ -930,8 +1005,8 @@ function renderGroups(){
       '<button class="btn" id="newG">➕ 创建小组</button>' +
       '<div style="height:10px"></div>' +
       '<label class="fl">用邀请码加入（6 位）</label>' +
-      '<div style="display:flex;gap:8px"><input type="text" id="gCode" maxlength="6" placeholder="例如：AB12CD" style="flex:1;padding:12px;border:1.5px solid #e5e7eb;border-radius:12px;font-size:15px;text-transform:uppercase;letter-spacing:3px">' +
-      '<button class="btn" id="joinG" style="white-space:nowrap">加入</button></div>' +
+      '<div class="inline-form"><input type="text" id="gCode" maxlength="6" placeholder="例如：AB12CD" style="text-transform:uppercase;letter-spacing:3px">' +
+      '<button class="btn" id="joinG">加入</button></div>' +
     '</div>' +
     '<div id="gList" class="cb-list" style="margin-top:12px"></div>' +
     '<div class="card" style="padding:14px"><button class="btn ghost" id="bh2">返回首页</button></div>';
@@ -1398,10 +1473,10 @@ function renderStuDash(){
   '</div>' +
   '<div class="card">' +
     '<div class="wb-head"><span class="wb-count">我的词书与数据</span></div>' +
-    '<button class="btn ghost" id="goCustom" style="width:100%;margin-bottom:8px">➕ 自定义词书（粘贴你自己的单词表）</button>' +
-    '<div style="display:flex;gap:8px">' +
-      '<button class="btn ghost" id="goBackup" style="flex:1">📤 导出备份</button>' +
-      '<button class="btn ghost" id="goRestore" style="flex:1">📥 导入备份</button>' +
+    '<button class="btn ghost" id="goCustom" style="width:100%;margin-bottom:10px">➕ 自定义词书（粘贴你自己的单词表）</button>' +
+    '<div class="btn-row">' +
+      '<button class="btn ghost" id="goBackup">📤 导出备份</button>' +
+      '<button class="btn ghost" id="goRestore">📥 导入备份</button>' +
     '</div>' +
     '<div class="hint">自定义词书让你用任意单词表（每行「单词 释义」）来学习；备份可保存生词本、熟词本与进度，换设备也不丢。</div>' +
   '</div>';

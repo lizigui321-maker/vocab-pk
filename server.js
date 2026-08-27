@@ -693,6 +693,19 @@ const server = http.createServer(async (req, res) => {
       if (name) { acc.name = name; saveAccounts(); }
       return send(res, 200, { ok: true, name: acc.name });
     }
+    if (req.method === 'POST' && p === '/api/me/password') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '未登录' });
+      const oldPassword = String(b.oldPassword || '');
+      const newPassword = String(b.newPassword || '');
+      if (!oldPassword || acc.hash !== hashPassword(oldPassword, acc.salt)) return send(res, 403, { error: '当前密码错误' });
+      if (newPassword.length < 6) return send(res, 400, { error: '新密码至少 6 位' });
+      acc.salt = crypto.randomBytes(16).toString('hex');
+      acc.hash = hashPassword(newPassword, acc.salt);
+      saveAccounts();
+      return send(res, 200, { ok: true });
+    }
     if (req.method === 'POST' && p === '/api/logout') {
       const b = await readBody(req);
       if (b.token && sessions[b.token]) { delete sessions[b.token]; saveSessions(); }

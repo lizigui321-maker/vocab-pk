@@ -64,7 +64,19 @@ async function main() {
   const me2 = await api('/api/me?token=' + tokA);
   ok(me2.data.name === '甲甲改', '改名后 /api/me 同步更新');
 
-  console.log('== 4. 带 token 对战：建房/加入，绿点应为在线 ==');
+  console.log('== 4. 修改密码 ==');
+  const badPwd = await api('/api/me/password', { token: tokA, oldPassword: 'wrong', newPassword: 'newpw123' });
+  ok(badPwd.status === 403, '旧密码错误时修改密码被拒（403）');
+  const shortPwd = await api('/api/me/password', { token: tokA, oldPassword: pw, newPassword: '12345' });
+  ok(shortPwd.status === 400, '新密码不足 6 位被拒（400）');
+  const chg = await api('/api/me/password', { token: tokA, oldPassword: pw, newPassword: 'newpw123' });
+  ok(chg.status === 200 && chg.data.ok, '旧密码正确时修改密码成功');
+  const loginOld = await api('/api/login', { username: ua, password: pw });
+  ok(loginOld.status === 401, '旧密码登录失败');
+  const loginNew = await api('/api/login', { username: ua, password: 'newpw123' });
+  ok(loginNew.status === 200 && loginNew.data.token, '新密码登录成功');
+
+  console.log('== 5. 带 token 对战：建房/加入，绿点应为在线 ==');
   const c = await api('/api/create', { token: tokA, bookId: 'cet4', mode: 'word', count: 10 });
   ok(c.status === 200 && c.data.roomId && c.data.playerId, 'A 带 token 建房成功 ' + (c.data && c.data.roomId));
   const roomId = c.data.roomId, pidA = c.data.playerId;

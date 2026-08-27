@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#4f6ef7">
+<meta name="theme-color" content="#007AFF">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -36,18 +36,19 @@
 [data-theme="dark"] .hint code{ background:#2c2c2e; }
 [data-theme="dark"] .hero{ box-shadow:0 16px 40px rgba(0,0,0,.55); }
 [data-theme="dark"] .feat{ border-color:rgba(255,255,255,.08); }
-/* 首页学习主入口 Hero */
-.hero{ border-radius:26px; padding:30px 26px; color:#fff; background:linear-gradient(150deg,#0A84FF 0%,#5e5ce6 100%); box-shadow:0 16px 40px rgba(10,132,255,.28); margin-bottom:16px; position:relative; overflow:hidden; }
-.hero::after{ content:""; position:absolute; right:-50px; top:-50px; width:190px; height:190px; background:radial-gradient(circle at 30% 30%,rgba(255,255,255,.22),transparent 70%); border-radius:50%; }
-.hero::before{ content:""; position:absolute; left:-40px; bottom:-60px; width:170px; height:170px; background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.12),transparent 70%); border-radius:50%; }
-.hero h2{ font-size:26px; margin:0 0 6px; letter-spacing:.3px; position:relative; font-weight:700; }
-.hero .sub{ opacity:.92; font-size:14px; margin-bottom:18px; position:relative; }
-.hero .hbtn{ display:inline-block; background:#fff; color:#0A84FF; border:none; border-radius:15px; padding:14px 28px; font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.16); position:relative; transition:transform .12s var(--ease), box-shadow .12s var(--ease); }
+/* 首页学习主入口 Hero（克制 iOS 蓝：白底卡片 + 蓝色仅作点缀） */
+.hero{ border-radius:26px; padding:30px 26px; color:var(--ink); background:var(--card); border:var(--hair); box-shadow:var(--shadow); margin-bottom:16px; position:relative; overflow:hidden; }
+.hero::after{ content:""; position:absolute; right:-50px; top:-50px; width:190px; height:190px; background:radial-gradient(circle at 30% 30%,rgba(0,122,255,.08),transparent 70%); border-radius:50%; }
+.hero::before{ content:""; position:absolute; left:-40px; bottom:-60px; width:170px; height:170px; background:radial-gradient(circle at 50% 50%,rgba(0,122,255,.05),transparent 70%); border-radius:50%; }
+.hero h2{ font-size:26px; margin:0 0 6px; letter-spacing:.3px; position:relative; font-weight:700; color:var(--ink); }
+.hero .sub{ color:var(--sub); font-size:14px; margin-bottom:18px; position:relative; }
+.hero .hbtn{ display:inline-block; background:var(--brand); color:#fff; border:none; border-radius:15px; padding:14px 28px; font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 6px 16px rgba(0,122,255,.22); position:relative; transition:transform .12s var(--ease), box-shadow .12s var(--ease); }
 .hero .hbtn:active{ transform:scale(.96); }
+.hero .hbtn-ghost{ background:#fff; color:var(--brand); border:1.5px solid var(--brand); box-shadow:none; }
 .hero .hstats{ display:flex; gap:10px; margin-bottom:18px; position:relative; }
-.hero .hstat{ background:rgba(255,255,255,.16); border-radius:16px; padding:10px 8px; flex:1; text-align:center; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
-.hero .hstat b{ display:block; font-size:20px; font-weight:700; }
-.hero .hstat span{ font-size:11px; opacity:.9; }
+.hero .hstat{ background:rgba(0,122,255,.08); border-radius:16px; padding:10px 8px; flex:1; text-align:center; }
+.hero .hstat b{ display:block; font-size:20px; font-weight:700; color:var(--ink); }
+.hero .hstat span{ font-size:11px; color:var(--sub); }
 .hero .ringwrap{ display:flex; align-items:center; gap:16px; margin-bottom:16px; position:relative; }
 /* 次级功能网格（PK / 生词本 / 熟词本 / 自测） */
 .feat-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; }
@@ -56,10 +57,10 @@
 .feat .ic{ font-size:24px; }
 .feat .t{ font-weight:600; margin-top:8px; font-size:15.5px; }
 .feat .d{ font-size:12.5px; color:var(--sub); margin-top:3px; }
-.feat.pk{ background:linear-gradient(150deg,#eaf2ff,#f3f0ff); }
+.feat.pk{ background:#eef5ff; }
 [data-theme="dark"] .feat.pk{ background:linear-gradient(150deg,#1c1c1e,#232038); }
 .theme-toggle{ border:1px solid var(--line); background:var(--card); border-radius:9px; padding:5px 10px; font-size:13px; cursor:pointer; color:var(--ink); }
-.level-badge{ display:inline-flex; align-items:center; gap:6px; background:linear-gradient(135deg,var(--brand),var(--brand2)); color:#fff; border-radius:999px; padding:4px 12px; font-size:13px; font-weight:700; }
+.level-badge{ display:inline-flex; align-items:center; gap:6px; background:rgba(0,122,255,.12); color:var(--brand); border:1px solid rgba(0,122,255,.2); border-radius:999px; padding:4px 12px; font-size:13px; font-weight:700; }
 /* 拼写（听写）模式 */
 .spell-input{ width:100%; padding:14px 16px; font-size:20px; text-align:center; border:2px solid var(--brand); border-radius:15px; outline:none; background:#f2f2f7; letter-spacing:1px; transition:.15s var(--ease); }
 [data-theme="dark"] .spell-input{ background:#2c2c2e; color:var(--ink); }
@@ -121,7 +122,7 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .btn{
   display:block;width:100%;padding:15px 0;border:none;border-radius:15px;font-size:17px;font-weight:600;
   cursor:pointer;margin-top:20px;transition:transform .12s var(--ease), box-shadow .12s var(--ease);color:#fff;
-  background:linear-gradient(150deg,var(--brand),var(--brand2));box-shadow:0 8px 20px rgba(0,122,255,.30);
+  background:var(--brand);box-shadow:0 6px 16px rgba(0,122,255,.22);
 }
 .btn:active{transform:scale(.975)}
 .btn.ghost{background:#fff;color:var(--brand);border:1.5px solid var(--brand);box-shadow:none}
@@ -172,13 +173,13 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .meaning{font-size:18px;color:var(--ok);font-weight:700}
 .listen-btn{
   width:108px;height:108px;border-radius:50%;border:none;cursor:pointer;margin:14px auto;
-  background:linear-gradient(150deg,var(--brand),var(--brand2));color:#fff;font-size:42px;
+  background:var(--brand);color:#fff;font-size:42px;
   box-shadow:0 10px 26px rgba(0,122,255,.40);display:flex;align-items:center;justify-content:center;transition:transform .12s var(--ease), box-shadow .12s var(--ease);
 }
 .listen-btn:active{transform:scale(.94)}
 .listen-tip{font-size:12.5px;color:var(--sub)}
 .timerbar{height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;margin:16px 0 4px}
-.timerbar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand2));border-radius:99px;width:100%}
+.timerbar i{display:block;height:100%;background:var(--brand);border-radius:99px;width:100%}
 .timerbar.danger i{background:linear-gradient(90deg,#f59e0b,#ef4444)}
 .tsec{text-align:right;font-size:12.5px;color:var(--sub)}
 .opts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
@@ -227,7 +228,7 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:r 0.8s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes r{to{transform:rotate(360deg)}}
 .speak-flash{animation:pulse 1s ease infinite}
-@keyframes pulse{0%,100%{box-shadow:0 10px 26px rgba(79,110,247,.4)}50%{box-shadow:0 10px 40px rgba(124,92,255,.75)}}
+@keyframes pulse{0%,100%{box-shadow:0 10px 26px rgba(0,122,255,.4)}50%{box-shadow:0 10px 40px rgba(0,122,255,.7)}}
 /* ---------- 首页功能入口 ---------- */
 .feat{display:flex;flex-direction:column;gap:0;padding:18px}
 .feat .btn{margin-top:0;padding:13px 6px;font-size:14.5px}
@@ -251,7 +252,7 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .wb-empty{text-align:center;color:var(--sub);font-size:14px;padding:26px 0 10px;line-height:1.8}
 /* ---------- 词汇量自测 ---------- */
 .vt-progress{font-size:13px;color:var(--sub);text-align:center;margin-bottom:4px}
-.vt-tier-badge{display:inline-block;font-size:12px;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2));border-radius:999px;padding:3px 12px;margin-bottom:8px}
+.vt-tier-badge{display:inline-block;font-size:12px;color:var(--brand);background:rgba(0,122,255,.12);border-radius:999px;padding:3px 12px;margin-bottom:8px}
 .vt-btns{display:flex;gap:12px;margin-top:20px}
 .vt-btns button{flex:1;padding:15px 0;border-radius:13px;font-size:16px;font-weight:700;cursor:pointer;border:1.5px solid var(--line);background:#fff;outline:none}
 .vt-btns .yes{color:var(--ok);border-color:var(--ok)}
@@ -265,21 +266,8 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .vt-tier:last-child{border-bottom:none}
 .vt-tier .tn{flex:none;width:3em;color:var(--sub)}
 .vt-tier .bar{flex:1;height:10px;background:#eef1f6;border-radius:99px;overflow:hidden}
-.vt-tier .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand2));border-radius:99px}
+.vt-tier .bar i{display:block;height:100%;background:var(--brand);border-radius:99px}
 .vt-tier .tv{flex:none;font-weight:700;color:#374151}
-.rank-me{background:rgba(79,110,247,.07);border:1.5px solid var(--brand);border-radius:13px;padding:12px 15px;font-size:14px;color:#374151;text-align:center;margin-bottom:10px}
-.rank-me b{color:var(--brand);font-size:18px}
-.rank-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:13px;background:#f2f2f7;margin-bottom:7px;font-size:14.5px}
-[data-theme="dark"] .rank-row{background:#2c2c2e;}
-.rank-row.me{border:1.5px solid var(--brand);background:rgba(0,122,255,.07)}
-.rank-row .rk2{flex:none;width:22px;height:22px;border-radius:50%;background:#e9e9ec;color:var(--sub);font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center}
-[data-theme="dark"] .rank-row .rk2{background:#3a3a3c;}
-.rank-row .rk2.r1{background:linear-gradient(135deg,#fbbf24,#f97316);color:#fff}
-.rank-row .rk2.r2{background:linear-gradient(135deg,#9ca3af,#6b7280);color:#fff}
-.rank-row .rk2.r3{background:linear-gradient(135deg,#e8a87c,#c97b4a);color:#fff}
-.rank-row .rn2{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
-.rank-row .rv2{flex:none;font-weight:800;color:var(--brand);font-size:16px}
-.rank-row.me .rv2{color:var(--brand)}
 /* ---------- 背单词 · 学习模块 ---------- */
 .stu-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:4px}
 @media (max-width:480px){.stu-stats{grid-template-columns:repeat(2,1fr)}}
@@ -310,7 +298,7 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .uchip small{font-size:10px;color:var(--sub);display:block;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .uchip .ub{height:4px;background:#e9e9ec;border-radius:99px;margin-top:6px;overflow:hidden}
 [data-theme="dark"] .uchip .ub{background:#3a3a3c;}
-.uchip .ub i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand2));border-radius:99px}
+.uchip .ub i{display:block;height:100%;background:var(--brand);border-radius:99px}
 .uchip.now{border-color:var(--brand);box-shadow:0 0 0 2px rgba(0,122,255,.18)}
 .uchip.done{border-color:rgba(52,199,89,.5)}
 .uchip.done .ub i{background:var(--ok)}
@@ -686,7 +674,7 @@ function renderHome(){
   var topbar =
     '<div class="topbar" style="justify-content:space-between">' +
       '<span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span>' +
-      '<span><button class="theme-toggle" id="thBtn">🌙</button> <button class="copybtn" id="editNameBtn">✏️ 昵称</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
+      '<span><button class="theme-toggle" id="thBtn">🌙</button> <button class="copybtn" id="setBtn">⚙️ 设置</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
     '</div>';
   app.innerHTML = topbar + '<div class="tagline"><span class="spin"></span></div>';
   api('/api/study/overview?token=' + encodeURIComponent(token), null, 'GET')
@@ -703,7 +691,7 @@ function renderHome(){
           '</div>' +
           '<div style="font-weight:800;font-size:15px;margin-bottom:4px">📚 ' + esc(ov.bookName) + '</div>' +
           '<button class="hbtn" id="hStudy">继续背单词 ▸</button> ' +
-          '<button class="hbtn" id="hReview" style="background:rgba(255,255,255,.2);color:#fff">🎯 复习生词本</button>';
+          '<button class="hbtn hbtn-ghost" id="hReview">🎯 复习生词本</button>';
       } else {
         hero =
           '<h2>📚 背单词</h2>' +
@@ -719,8 +707,7 @@ function renderHome(){
           '<div class="feat" id="fVocab"><div class="ic">📊</div><div class="t">词汇量自测</div><div class="d">测测你有多少词</div></div>' +
           '<div class="feat" id="fGroups"><div class="ic">👥</div><div class="t">单词小组</div><div class="d">看看朋友的打卡</div></div>' +
           '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">我的好友</div><div class="d">邀请一起背单词</div></div>' +
-        '</div>' +
-        '<div class="footer-tip">背单词为主，单词对战为辅 · 学习错题与对战错题共享同一本生词本</div>';
+        '</div>';
       $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
       var hr = $('#hReview'); if (hr) hr.onclick = function(){ page = 'study'; stuStart('review'); };
       $('#fPk').onclick = function(){ renderPk(); };
@@ -729,10 +716,120 @@ function renderHome(){
       $('#fVocab').onclick = function(){ page = 'vocab'; renderVocabStart(); };
       $('#fGroups').onclick = function(){ page = 'groups'; renderGroups(); };
       $('#fFriends').onclick = function(){ page = 'friends'; renderFriends(); };
+      var sb = document.getElementById('setBtn'); if (sb) sb.onclick = function(){ page = 'settings'; renderSettings(); };
       wireTopbar();
     })
     .catch(function(e){ toast(e.message); renderAuth(); });
 }
+
+/* ---------- 设置（⚙️）：学习计划 / 外观 / 账号 ---------- */
+function renderSettings(){
+  app.innerHTML = '<h1>⚙️ 设置</h1><div class="tagline"><span class="spin"></span></div>';
+  api('/api/study/overview?token=' + encodeURIComponent(token), null, 'GET')
+    .then(function(ov){
+      var plan = ov.plan || { bookId: (BOOKS[0] || {}).id, dailyNew: 20, vocabEstimate: 0, autoSpeak: true };
+      var bookOpts = bookOptionsHTML(plan.bookId, ov.books);
+      var bookLang = function(id){
+        var list = (ov.books && ov.books.length) ? ov.books : BOOKS;
+        for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].lang || 'en';
+        return 'en';
+      };
+      var dk = document.documentElement.getAttribute('data-theme') === 'dark';
+      app.innerHTML =
+      '<div class="topbar" style="justify-content:space-between">' +
+        '<span class="chip">⚙️ 设置</span>' +
+        '<button class="copybtn" id="setBack">← 首页</button>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="wb-head"><span class="wb-count">📚 学习计划</span></div>' +
+        '<label class="fl">背哪本词书</label>' +
+        '<select id="spBook" style="width:100%;padding:12px;border:1.5px solid #e5e7eb;border-radius:12px;font-size:15px;background:#fafbfc;">' + bookOpts + '</select>' +
+        '<label class="fl">每天背多少个新词</label>' +
+        '<div class="seg2" id="spDaily">' +
+          [10, 20, 30, 50, 100].map(function(n){
+            return '<button data-v="' + n + '"' + (n === plan.dailyNew ? ' class="on"' : '') + '>' + n + ' 个</button>';
+          }).join('') +
+        '</div>' +
+        '<div id="spEstBlock">' +
+          '<label class="fl">我估计自己大概认识多少词（用来跳过简单词）</label>' +
+          '<div class="stu-num"><input type="text" id="spEst" inputmode="numeric" maxlength="5" placeholder="例如 5000，填 0 或留空 = 不跳过" value="' + (plan.vocabEstimate || '') + '"></div>' +
+          '<div class="seg2" id="spEstQuick" style="margin-top:8px">' +
+            [0, 1500, 3000, 4500, 6000, 8000].map(function(n){
+              return '<button data-v="' + n + '"' + (n === (plan.vocabEstimate || 0) ? ' class="on"' : '') + '>' + (n === 0 ? '不跳过' : n + '') + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
+        '<div class="hint" id="spHint">' + (bookLang(plan.bookId) === 'es'
+          ? '西语词书按<b>使用频率</b>排序：基础常用词排在前面单元，进阶词在后面。'
+          : '按<b>词频</b>学习：高频词排在前面单元，低频词在后面。设置估计词汇量（如 5000）后，词频排名前 5000 的简单词会<b>自动跳过</b>，直接从适合你难度的词开始。') + '</div>' +
+        '<div class="switch' + (plan.autoSpeak !== false ? ' on' : '') + '" id="spSpeak"><span>🔊 自动朗读单词（显示题目时）</span><span class="sw"></span></div>' +
+        '<button class="btn" id="spSave">保存学习计划 💾</button>' +
+        '<div id="spSaved" class="hint" style="display:none"></div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="wb-head"><span class="wb-count">🎨 外观</span></div>' +
+        '<div class="switch' + (dk ? ' on' : '') + '" id="setDark"><span>🌙 深色模式</span><span class="sw"></span></div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="wb-head"><span class="wb-count">👤 账号</span></div>' +
+        '<label class="fl">昵称（游戏中显示，最多 12 字）</label>' +
+        '<input type="text" id="setNick" maxlength="12" value="' + esc(account ? account.name : '') + '">' +
+        '<button class="btn ghost" id="setNickSave" style="margin-top:14px">保存昵称</button>' +
+      '</div>';
+      $('#setBack').onclick = function(){ page = 'home'; renderHome(); };
+      var dailySeg = $('#spDaily'), estSeg = $('#spEstQuick');
+      dailySeg.addEventListener('click', function(e){
+        var b = e.target.closest('button'); if (!b) return;
+        dailySeg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+        b.classList.add('on');
+      });
+      estSeg.addEventListener('click', function(e){
+        var b = e.target.closest('button'); if (!b) return;
+        estSeg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+        b.classList.add('on');
+        $('#spEst').value = (+b.getAttribute('data-v')) || '';
+      });
+      var spBook = $('#spBook');
+      function syncBookLang(){
+        var es2 = bookLang(spBook.value) === 'es';
+        $('#spEstBlock').style.display = es2 ? 'none' : '';
+        $('#spHint').innerHTML = es2
+          ? '西语词书按<b>使用频率</b>排序：基础常用词排在前面单元，进阶词在后面。'
+          : '按<b>词频</b>学习：高频词排在前面单元，低频词在后面。设置估计词汇量（如 5000）后，词频排名前 5000 的简单词会<b>自动跳过</b>，直接从适合你难度的词开始。';
+        if (es2) $('#spEst').value = '';
+      }
+      spBook.addEventListener('change', syncBookLang);
+      syncBookLang();
+      var speakOn = plan.autoSpeak !== false;
+      $('#spSpeak').onclick = function(){ speakOn = !speakOn; this.classList.toggle('on', speakOn); };
+      $('#spSave').onclick = function(){
+        var btn = this; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>保存中…';
+        var est = Math.max(0, Math.min(30000, parseInt($('#spEst').value, 10) || 0));
+        api('/api/study/plan', {
+          token: token, bookId: $('#spBook').value,
+          dailyNew: +($('#spDaily button.on') ? $('#spDaily button.on').getAttribute('data-v') : 20),
+          vocabEstimate: est, autoSpeak: speakOn,
+        }).then(function(d){
+          toast('计划已保存' + (d.skipped ? ' · 跳过 ' + d.skipped + ' 个简单词' : ''));
+          var box = $('#spSaved');
+          if (box) { box.style.display = ''; box.innerHTML = '<b>已生效</b><br>· 词书：' + esc(d.bookName) + '<br>· 需学习：' + d.total + ' 词（跳过 ' + d.skipped + ' 个简单词）'; }
+          btn.disabled = false; btn.innerHTML = '保存学习计划 💾';
+        }).catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '保存学习计划 💾'; });
+      };
+      var sd = $('#setDark');
+      sd.onclick = function(){ toggleTheme(); var now = document.documentElement.getAttribute('data-theme') === 'dark'; sd.classList.toggle('on', now); };
+      $('#setNickSave').onclick = function(){
+        var nn = $('#setNick').value.trim().slice(0, 12);
+        if (!nn) { toast('昵称不能为空'); return; }
+        var btn = this; btn.disabled = true;
+        api('/api/me', { token: token, name: nn }, 'POST')
+          .then(function(d){ account.name = d.name; toast('昵称已更新'); btn.disabled = false; })
+          .catch(function(e){ toast(e.message); btn.disabled = false; });
+      };
+    })
+    .catch(function(e){ toast(e.message); page = 'home'; renderHome(); });
+}
+
 /* ---------- 单词对战入口（从首页「⚡ 单词对战」进入） ---------- */
 function renderPk(){
   var bookOpts = bookOptionsHTML(null);
@@ -1115,10 +1212,9 @@ function renderVocabStart(){
       '· 单词从「中考 → 高考 → 四级 → 六级 → 考研 → 雅思 → 托福」逐层随机出现；<br>' +
       '· 认识的词选「✅ 认识」并挑出正确释义（选对才计认识）；<br>' +
       '· 认识但释义选错 = 拿不准，算一半；完全没见过就选「❌ 不认识」；<br>' +
-      '· 按每层认识比例估算该层词数，累加得总词汇量，最好成绩进排行榜。' +
+      '· 按每层认识比例估算该层词数，累加得总词汇量，成绩自动保存在你的账号。' +
     '</div>' +
     '<button class="btn" id="vtStart">开始测试 🚀</button>' +
-    '<button class="btn ghost" id="vtRankOnly">查看排行榜 🏆</button>' +
     '<button class="btn ghost" id="vtBack">返回首页</button>' +
   '</div>';
   $('#vtStart').onclick = function(){
@@ -1130,7 +1226,6 @@ function renderVocabStart(){
       })
       .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '开始测试 🚀'; });
   };
-  $('#vtRankOnly').onclick = renderVocabRank;
   $('#vtBack').onclick = function(){ page = 'home'; renderHome(); };
 }
 
@@ -1199,67 +1294,14 @@ function renderVocabResult(){
         '<div class="vt-est-label">你的估算词汇量（各层认识比例 × 该层词数）</div>' +
         tiersHtml +
       '</div>' +
-      '<div class="card" id="vtRankBox"><div style="text-align:center;color:var(--sub);padding:10px">加载排行榜…</div></div>' +
       '<div class="card" style="padding:14px">' +
         '<button class="btn" id="vtAgain">再测一次 🔁</button>' +
         '<button class="btn ghost" id="vtDone">返回首页</button>' +
       '</div>';
       $('#vtAgain').onclick = function(){ renderVocabStart(); };
       $('#vtDone').onclick = function(){ vq = null; page = 'home'; renderHome(); };
-      api('/api/vocabrank?token=' + encodeURIComponent(token), null, 'GET')
-        .then(function(rk){
-          var box = $('#vtRankBox');
-          if (!box) return;
-          var meHtml = rk.you
-            ? '<div class="rank-me">我的排名 <b>#' + rk.you.rank + '</b> · 最好成绩 <b>' + rk.you.best.toLocaleString() + '</b> 词 · 测过 ' + rk.you.count + ' 次</div>'
-            : '';
-          var rows = (rk.list || []).slice(0, 30).map(function(x){
-            var medal = x.rank === 1 ? '🥇' : (x.rank === 2 ? '🥈' : (x.rank === 3 ? '🥉' : x.rank));
-            var me = rk.you && String(x.name).toLowerCase() === String(account ? account.username : '').toLowerCase() ? ' me' : '';
-            return '<div class="rank-row' + me + '">' +
-              '<span class="rk2 r' + Math.min(x.rank, 3) + '">' + medal + '</span>' +
-              '<span class="rn2">' + esc(x.name) + '</span>' +
-              '<span class="rv2">' + x.best.toLocaleString() + '</span>' +
-            '</div>';
-          }).join('');
-          box.innerHTML = '<div class="wb-head"><span class="wb-count">🏆 词汇量排行榜（最好成绩）</span></div>' + meHtml + (rows || '<div class="wb-empty">暂无数据</div>');
-        })
-        .catch(function(){
-          var box = $('#vtRankBox');
-          if (box) box.innerHTML = '<div class="wb-empty">排行榜加载失败，成绩已保存</div>';
-        });
     })
     .catch(function(e){ toast(e.message); renderVocabStart(); });
-}
-
-function renderVocabRank(){
-  var name = account ? account.username : '';
-  api('/api/vocabrank?token=' + encodeURIComponent(token), null, 'GET')
-    .then(function(d){
-      var meHtml = d.you
-        ? '<div class="rank-me">我的排名 <b>#' + d.you.rank + '</b> · 最好成绩 <b>' + d.you.best.toLocaleString() + '</b> 词 · 测过 ' + d.you.count + ' 次</div>'
-        : '<div class="rank-me">你还没测过词汇量，测一次就能上榜 🚀</div>';
-      var rows = (d.list || []).slice(0, 50).map(function(x){
-        var medal = x.rank === 1 ? '🥇' : (x.rank === 2 ? '🥈' : (x.rank === 3 ? '🥉' : x.rank));
-        var me = d.you && String(x.name).toLowerCase() === String(name).toLowerCase() ? ' me' : '';
-        return '<div class="rank-row' + me + '">' +
-          '<span class="rk2 r' + Math.min(x.rank, 3) + '">' + medal + '</span>' +
-          '<span class="rn2">' + esc(x.name) + '</span>' +
-          '<span class="rv2">' + x.best.toLocaleString() + '</span>' +
-        '</div>';
-      }).join('');
-      app.innerHTML =
-      '<h1>🏆 词汇量排行榜</h1>' +
-      '<div class="tagline">按最好成绩排序 · 共 ' + (d.list || []).length + ' 人参与</div>' +
-      '<div class="card">' + meHtml + rows + '</div>' +
-      '<div class="card" style="padding:14px">' +
-        '<button class="btn" id="rtStart">我也要测 🚀</button>' +
-        '<button class="btn ghost" id="rtBack">返回首页</button>' +
-      '</div>';
-      $('#rtStart').onclick = renderVocabStart;
-      $('#rtBack').onclick = function(){ page = 'home'; renderHome(); };
-    })
-    .catch(function(e){ toast(e.message); page = 'home'; renderHome(); });
 }
 
 /* ================= 背单词 · 学习模块 ================= */
@@ -1277,7 +1319,7 @@ function ringSvg(pct){
   return '<svg width="92" height="92" viewBox="0 0 92 92">' +
     '<circle cx="46" cy="46" r="' + r + '" fill="none" stroke="#eef1f6" stroke-width="9"/>' +
     '<circle cx="46" cy="46" r="' + r + '" fill="none" stroke="url(#stug)" stroke-width="9" stroke-linecap="round" stroke-dasharray="' + c + '" stroke-dashoffset="' + off + '" style="transition:stroke-dashoffset .5s"/>' +
-    '<defs><linearGradient id="stug" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f6ef7"/><stop offset="1" stop-color="#7c5cff"/></linearGradient></defs></svg>';
+    '<defs><linearGradient id="stug" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#007AFF"/><stop offset="1" stop-color="#0A84FF"/></linearGradient></defs></svg>';
 }
 function renderStudy(){
   app.innerHTML = '<h1>📚 背单词</h1><div class="tagline"><span class="spin"></span></div>';
@@ -1317,7 +1359,7 @@ function renderStuDash(){
   app.innerHTML =
   '<div class="topbar" style="justify-content:space-between">' +
     '<span class="chip">📚 ' + esc(ov.bookName) + '</span>' +
-    '<span><span class="level-badge">Lv.' + lvl + ' 🏅</span> <button class="copybtn" id="stuBack">← 首页</button></span>' +
+    '<span><span class="level-badge">Lv.' + lvl + ' 🏅</span> <button class="copybtn" id="stuSet">⚙️ 设置</button> <button class="copybtn" id="stuBack">← 首页</button></span>' +
   '</div>' +
   '<h1>今日学习</h1>' +
   '<div class="card">' +
@@ -1364,6 +1406,7 @@ function renderStuDash(){
     '<div class="hint">自定义词书让你用任意单词表（每行「单词 释义」）来学习；备份可保存生词本、熟词本与进度，换设备也不丢。</div>' +
   '</div>';
   $('#stuBack').onclick = function(){ page = 'home'; renderHome(); };
+  var ss = document.getElementById('stuSet'); if (ss) ss.onclick = function(){ page = 'settings'; renderSettings(); };
   $('#stuGo').onclick = function(){ stuStart('daily'); };
   $('#stuReview').onclick = function(){ stuStart('review'); };
   $('#stuPlanEdit').onclick = function(){ renderStudyPlan(false); };

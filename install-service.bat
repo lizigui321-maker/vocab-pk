@@ -1,24 +1,18 @@
 @echo off
 chcp 65001 >nul
 cd /d %~dp0
-set ROOT=%~dp0
-set TASK=VocabPK-Service
+set DEST=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\单词PK-自启.vbs
 
-echo 正在注册开机自启任务：%TASK%
-schtasks /Create /TN "%TASK%" ^
-  /TR "powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File \"%ROOT%run-service.ps1\"" ^
-  /SC ONLOGON /F
+echo 正在设置开机自启（无需管理员权限）...
+copy /Y "%~dp0autostart.vbs" "%DEST%" >nul
+echo   已放入启动文件夹：%DEST%
 
-if "%ERRORLEVEL%"=="0" (
-  echo.
-  echo 注册成功！以后你登录 Windows 会自动启动单词PK 服务。
-  echo 现在立即启动一次服务...
-  schtasks /Run /TN "%TASK%"
-  timeout /t 3 /nobreak >nul
-  echo.
-  echo 已启动。查看状态请用桌面「单词PK 状态」或 status.html。
-) else (
-  echo 注册失败，请以管理员身份运行本脚本重试。
-)
+echo.
+echo 正在启动服务（后台隐藏运行）...
+call "%~dp0service.bat"
+
+echo.
+echo 完成！本次已启动，且下次登录 Windows 会自动启动。
+echo 查看状态：桌面「单词PK 状态」或 http://localhost:3000/status.html
 echo.
 pause

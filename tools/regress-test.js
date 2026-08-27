@@ -4,7 +4,7 @@
  * 前置：server.js 已在 3000 端口运行（新账号版代码）
  */
 'use strict';
-const BASE = 'http://localhost:3000';
+const BASE = process.env.BASE_URL || 'http://localhost:3000';
 const fs = require('fs');
 const path = require('path');
 const STORE = path.join(__dirname, '..', 'store');

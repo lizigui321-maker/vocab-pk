@@ -629,15 +629,23 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
+  const onCloud = process.env.RENDER || process.env.RAILWAY || process.env.KOYEB || process.env.VERCEL || process.env.PORT;
+  const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.KOYEB_APP_PUBLIC_DOMAIN || '';
   const ips = lanIPs();
   console.log('====================================');
   console.log('  单词PK · 词汇对战已启动');
   console.log('====================================');
-  console.log('  本机访问:  http://localhost:' + PORT);
-  for (const ip of ips) console.log('  局域网:    http://' + ip + ':' + PORT);
-  if (!ips.length) console.log('  (未检测到局域网 IP，其他设备可能无法访问)');
-  console.log('------------------------------------');
-  console.log('  · 同一 WiFi 的设备可直接打开局域网地址');
-  console.log('  · 公网玩家请通过隧道地址访问（start-online.bat）');
+  if (onCloud) {
+    if (externalUrl) console.log('  公网地址:  https://' + externalUrl);
+    console.log('  监听端口:  ' + PORT);
+    console.log('  环境:      云端部署');
+  } else {
+    console.log('  本机访问:  http://localhost:' + PORT);
+    for (const ip of ips) console.log('  局域网:    http://' + ip + ':' + PORT);
+    if (!ips.length) console.log('  (未检测到局域网 IP，其他设备可能无法访问)');
+    console.log('------------------------------------');
+    console.log('  · 同一 WiFi 的设备可直接打开局域网地址');
+    console.log('  · 公网玩家请通过隧道地址访问（start-online.bat）');
+  }
   console.log('====================================');
 });

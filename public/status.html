@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单词PK · 状态监视器</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f4f6fb; color: #1f2937; margin: 0;
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  }
+  .card {
+    background: #fff; width: 420px; max-width: 92vw; border-radius: 18px;
+    box-shadow: 0 12px 40px rgba(30,40,80,.12); padding: 28px 26px 22px;
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+  .logo { color: #4f46e5; }
+  .sub { font-size: 12.5px; color: #94a3b8; margin: 0 0 20px; }
+  .row {
+    display: flex; align-items: center; gap: 14px; padding: 14px 16px;
+    border: 1px solid #eef1f7; border-radius: 12px; margin-bottom: 12px; background: #fafbff;
+  }
+  .dot { width: 16px; height: 16px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 4px rgba(0,0,0,.04); }
+  .on  { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.18); }
+  .off { background: #ef4444; box-shadow: 0 0 0 4px rgba(239,68,68,.18); }
+  .row .txt { flex: 1; min-width: 0; }
+  .row .label { font-size: 14.5px; font-weight: 600; }
+  .row .detail { font-size: 12px; color: #94a3b8; margin-top: 2px; word-break: break-all; }
+  a.url { color: #4f46e5; text-decoration: none; font-size: 12.5px; }
+  a.url:hover { text-decoration: underline; }
+  .foot { display: flex; gap: 10px; margin-top: 6px; }
+  .btn {
+    flex: 1; text-align: center; padding: 10px; border-radius: 10px; font-size: 13px;
+    cursor: pointer; border: 1px solid #e2e8f0; background: #fff; color: #334155; text-decoration: none;
+  }
+  .btn:hover { background: #f1f5f9; }
+  .btn.primary { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+  .btn.primary:hover { background: #4338ca; }
+  .meta { font-size: 11.5px; color: #cbd5e1; text-align: center; margin-top: 14px; }
+  .pulse { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1><span class="logo">⚡</span> 单词PK 状态监视器</h1>
+    <p class="sub">实时显示对战服务是否正在运行</p>
+
+    <div class="row">
+      <span id="dotLocal" class="dot off"></span>
+      <div class="txt">
+        <div class="label">本地服务器（node）</div>
+        <div class="detail" id="detLocal">检测中…</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <span id="dotPub" class="dot off"></span>
+      <div class="txt">
+        <div class="label">公网隧道（cloudflared）</div>
+        <div class="detail" id="detPub">检测中…</div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <a class="btn primary" id="btnOpen" href="http://localhost:3000" target="_blank">打开对战主页</a>
+      <a class="btn" id="btnRefresh" href="javascript:check()">立即刷新</a>
+    </div>
+
+    <div class="meta" id="meta">最后检测：—</div>
+  </div>
+
+<script>
+  var LOCAL = 'http://localhost:3000';
+  function setDot(id, on){ document.getElementById(id).className = 'dot ' + (on ? 'on' : 'off'); }
+  function stamp(){
+    var d = new Date();
+    document.getElementById('meta').textContent = '最后检测：' + d.toLocaleTimeString('zh-CN');
+  }
+  function fetchInfo(url){
+    var c = new AbortController();
+    var t = setTimeout(function(){ c.abort(); }, 4000);
+    return fetch(url + '/api/info', { signal: c.signal })
+      .then(function(r){ clearTimeout(t); return r.ok ? r.json() : null; })
+      .catch(function(){ clearTimeout(t); return null; });
+  }
+  function check(){
+    fetchInfo(LOCAL).then(function(info){
+      var localOk = !!info;
+      setDot('dotLocal', localOk);
+      var detL = document.getElementById('detLocal');
+      if (localOk) {
+        detL.innerHTML = '运行中 · 端口 ' + info.port + ' · <a class="url" href="' + LOCAL + '" target="_blank">' + LOCAL + '</a>';
+        document.getElementById('btnOpen').href = LOCAL;
+      } else {
+        detL.textContent = '未运行（双击桌面「单词PK 在线对战」启动）';
+      }
+      // 公网隧道：优先用 info.publicUrl，并实测它是否可达
+      var pub = info && info.publicUrl ? info.publicUrl : '';
+      if (!pub) {
+        setDot('dotPub', false);
+        document.getElementById('detPub').textContent = localOk ? '未开启公网（仅局域网可用）' : '—';
+        stamp();
+        return;
+      }
+      fetchInfo(pub).then(function(p){
+        var pubOk = !!p;
+        setDot('dotPub', pubOk);
+        document.getElementById('detPub').innerHTML = (pubOk ? '已连接 · 任何网络可访问' : '地址有效但暂时不通（可能隧道已断）')
+          + ' · <a class="url" href="' + pub + '" target="_blank">' + pub + '</a>';
+        document.getElementById('btnOpen').href = pubOk ? pub : LOCAL;
+        stamp();
+      });
+    });
+  }
+  check();
+  setInterval(check, 2000);
+</script>
+</body>
+</html>

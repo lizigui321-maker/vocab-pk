@@ -1,0 +1,19 @@
+# Render.com 一键部署配置（免费版即可）
+# 部署后服务器 24 小时在线，所有人随时可打开网址 / 安装 PWA / 用 APK 联网对战。
+# 用法：在 Render 新建 "Blueprint" 并连接本仓库即可。
+services:
+  - type: web
+    name: vocabpk
+    runtime: node
+    plan: free
+    region: oregon          # 可改成 singapore 等离用户更近的区
+    branch: main            # 按你的仓库分支调整
+    buildCommand: "true"    # 零依赖，无需构建
+    startCommand: "node server.js"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # PORT 由 Render 自动注入，server.js 已读取 process.env.PORT
+    # 注意：免费版文件系统是临时的，重新部署会清空本地账号/生词本数据。
+    # 如需持久化，请在 Render 控制台为该服务挂载一个 Persistent Disk，
+    # 并把 Mount Path 设为 /opt/render/project/src/store （与本项目 store 目录对应）。

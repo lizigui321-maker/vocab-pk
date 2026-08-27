@@ -1,0 +1,35 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.vocabpk'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.vocabpk"
+        minSdk 24           // Android 7.0+，覆盖绝大多数手机
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            // 调试包可直接安装到手机测试
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // 本 App 只是 WebView 壳，无需额外依赖；所有逻辑在网页端（已部署的服务器）
+}

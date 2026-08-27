@@ -1,0 +1,8 @@
+<resources>
+    <!-- 无标题栏的全屏主题，状态栏/导航栏用品牌蓝 -->
+    <style name="Theme.VocabPK" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:statusBarColor">#4f6ef7</item>
+        <item name="android:navigationBarColor">#4f6ef7</item>
+        <item name="android:windowFullscreen">false</item>
+    </style>
+</resources>

@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#4f6ef7">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="单词PK">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>单词PK · 在线词汇对战</title>
+<style>
+:root{
+  --ink:#1f2430; --sub:#6b7280; --line:#e5e7eb;
+  --brand:#4f6ef7; --brand2:#7c5cff; --ok:#0e9f6e; --bad:#ef4444;
+  --card:#ffffff; --shadow:0 10px 30px rgba(31,36,48,.10);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  background:linear-gradient(165deg,#eef2ff 0%,#f8fafc 50%,#f5f3ff 100%);
+  color:var(--ink); min-height:100vh;
+}
+#app{max-width:720px;margin:0 auto;padding:20px 16px 56px}
+h1{font-size:26px;text-align:center;margin:18px 0 4px;letter-spacing:1px}
+h1 .vs{color:var(--brand)}
+.tagline{text-align:center;color:var(--sub);font-size:13px;margin-bottom:22px}
+.card{background:var(--card);border-radius:18px;box-shadow:var(--shadow);padding:22px;margin-bottom:16px;border:1px solid rgba(31,36,48,.04)}
+label.fl{display:block;font-size:13px;color:var(--sub);margin:14px 0 6px}
+input[type=text],input[type=password]{
+  width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;
+  font-size:16px;outline:none;background:#fafbfc;transition:.15s;
+}
+input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 0 3px rgba(79,110,247,.12)}
+.tabs{display:flex;background:#eef1f6;border-radius:12px;padding:4px;margin-bottom:6px}
+.tabs button{
+  flex:1;border:none;background:transparent;padding:10px 0;font-size:15px;border-radius:9px;
+  cursor:pointer;color:var(--sub);font-weight:600;transition:.15s;
+}
+.tabs button.on{background:#fff;color:var(--brand);box-shadow:0 2px 8px rgba(31,36,48,.08)}
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.seg button{
+  flex:1;min-width:70px;padding:10px 6px;border:1.5px solid var(--line);background:#fff;border-radius:11px;
+  font-size:14px;cursor:pointer;color:var(--ink);transition:.15s;white-space:nowrap;
+}
+.seg button.on{border-color:var(--brand);color:var(--brand);background:rgba(79,110,247,.07);font-weight:700}
+.seg button small{display:block;font-size:11px;color:var(--sub);font-weight:400;margin-top:2px}
+.btn{
+  display:block;width:100%;padding:14px 0;border:none;border-radius:13px;font-size:17px;font-weight:700;
+  cursor:pointer;margin-top:20px;transition:.15s;color:#fff;
+  background:linear-gradient(135deg,var(--brand),var(--brand2));box-shadow:0 6px 18px rgba(79,110,247,.35);
+}
+.btn:active{transform:scale(.98)}
+.btn.ghost{background:#fff;color:var(--brand);border:1.5px solid var(--brand);box-shadow:none}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.hint{font-size:12.5px;color:var(--sub);line-height:1.7;margin-top:14px;background:#f6f8fc;border-radius:10px;padding:10px 12px}
+.hint b{color:#475069}
+.hint code{background:#fff;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12px;color:var(--brand)}
+.roomcode-big{font-size:46px;font-weight:800;letter-spacing:10px;text-align:center;color:var(--brand);margin:6px 0 2px;font-family:Consolas,monospace}
+.share{text-align:center;font-size:13px;color:var(--sub)}
+.share code{background:#f1f4fb;padding:2px 8px;border-radius:6px;color:#374151;font-size:12.5px;word-break:break-all}
+.copybtn{border:1px solid var(--brand);background:#fff;color:var(--brand);border-radius:8px;padding:5px 14px;font-size:12.5px;cursor:pointer;margin-top:9px;font-weight:600}
+.copybtn:active{transform:scale(.96)}
+.plist{margin-top:14px}
+.prow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:11px;background:#f8f9fc;margin-bottom:8px;font-size:15px}
+.prow .dot{width:8px;height:8px;border-radius:50%;background:#d1d5db;flex:none}
+.prow .dot.on{background:var(--ok)}
+.prow .host{color:#d97706;font-size:13px}
+.prow .me{color:var(--brand);font-size:12px;background:rgba(79,110,247,.1);border-radius:6px;padding:1px 7px}
+.topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:13px;color:#374151;box-shadow:0 2px 6px rgba(31,36,48,.05)}
+.chip b{color:var(--brand)}
+.chip.mode{background:linear-gradient(135deg,rgba(79,110,247,.1),rgba(124,92,255,.1));border-color:rgba(79,110,247,.25)}
+.scores{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.schip{background:#fff;border-radius:12px;padding:7px 12px;font-size:13.5px;box-shadow:0 2px 8px rgba(31,36,48,.06);border:1px solid var(--line);display:flex;align-items:center;gap:7px}
+.schip .nm{max-width:7em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.schip .sc{font-weight:800;color:var(--brand)}
+.schip.ans .sc{color:var(--ok)}
+.schip.ans::after{content:'✓';color:var(--ok);font-weight:800}
+.schip .rk{flex:none;width:21px;height:21px;border-radius:50%;background:#eef1f6;color:var(--sub);font-size:11.5px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.schip .rk.r1{background:linear-gradient(135deg,#fbbf24,#f97316);color:#fff}
+.schip .rk.r2{background:linear-gradient(135deg,#9ca3af,#6b7280);color:#fff}
+.schip .rk.r3{background:linear-gradient(135deg,#e8a87c,#c97b4a);color:#fff}
+.schip.me{border-color:var(--brand);background:rgba(79,110,247,.07);box-shadow:0 0 0 2px rgba(79,110,247,.18)}
+.rankchip b{color:#d97706;font-size:14px}
+.qwrap{background:#fff;border-radius:18px;box-shadow:var(--shadow);padding:26px 20px;text-align:center;position:relative;overflow:hidden}
+.qmeta{font-size:13px;color:var(--sub);margin-bottom:8px}
+.word{font-size:44px;font-weight:800;letter-spacing:1px;color:#111827;margin:10px 0 6px;font-family:Georgia,"Times New Roman",serif}
+.meaning{font-size:18px;color:var(--ok);font-weight:700}
+.listen-btn{
+  width:110px;height:110px;border-radius:50%;border:none;cursor:pointer;margin:14px auto;
+  background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;font-size:44px;
+  box-shadow:0 10px 26px rgba(79,110,247,.4);display:flex;align-items:center;justify-content:center;transition:.15s;
+}
+.listen-btn:active{transform:scale(.94)}
+.listen-tip{font-size:12.5px;color:var(--sub)}
+.timerbar{height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;margin:16px 0 4px}
+.timerbar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand2));border-radius:99px;width:100%}
+.timerbar.danger i{background:linear-gradient(90deg,#f59e0b,#ef4444)}
+.tsec{text-align:right;font-size:12.5px;color:var(--sub)}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+@media (max-width:480px){.opts{grid-template-columns:1fr}.word{font-size:34px}}
+.opt{
+  border:1.5px solid var(--line);background:#fff;border-radius:13px;padding:15px 10px;font-size:15.5px;
+  cursor:pointer;text-align:left;display:flex;gap:9px;align-items:center;line-height:1.35;outline:none;
+}
+.opt .k{flex:none;width:24px;height:24px;border-radius:8px;background:#eef1f6;color:var(--sub);font-size:12.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.opt.correct{border-color:var(--ok);background:rgba(14,159,110,.09);font-weight:700}
+.opt.correct .k{background:var(--ok);color:#fff}
+.opt.wrong{border-color:var(--bad);background:rgba(239,68,68,.08)}
+.opt.wrong .k{background:var(--bad);color:#fff}
+.opt.picked{border-color:var(--brand);background:rgba(79,110,247,.07)}
+.opt:disabled{cursor:default}
+.waiting{margin-top:14px;font-size:13.5px;color:var(--sub);text-align:center}
+.myfb{margin-top:14px;font-size:15px;font-weight:800;padding:11px 14px;border-radius:12px;animation:pop .3s ease;text-align:center}
+.myfb.ok{background:rgba(14,159,110,.13);color:var(--ok)}
+.myfb.bad{background:rgba(239,68,68,.1);color:var(--bad)}
+.myfb b{font-size:17px}
+@keyframes pop{0%{transform:scale(.9);opacity:0}100%{transform:scale(1);opacity:1}}
+.gain{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.gain span{font-size:12.5px;border-radius:8px;padding:3px 10px;background:#f3f4f6;color:#4b5563}
+.gain span.up{background:rgba(14,159,110,.12);color:var(--ok);font-weight:700}
+.gain span.down{background:rgba(239,68,68,.1);color:var(--bad)}
+.rank{margin-top:6px}
+.rrow{display:flex;align-items:center;gap:12px;background:#f8f9fc;border-radius:13px;padding:13px 15px;margin-bottom:9px}
+.rrow.first{background:linear-gradient(135deg,#fff7e6,#fffbea);border:1px solid #fde68a}
+.rrow .medal{font-size:24px;width:34px;text-align:center;flex:none}
+.rrow .rname{font-weight:700;font-size:16px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrow .rstat{text-align:right;font-size:12.5px;color:var(--sub)}
+.rrow .rstat b{display:block;font-size:19px;color:var(--brand)}
+.rrow.first .rstat b{color:#d97706}
+.toast{
+  position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:#111827;color:#fff;
+  padding:10px 20px;border-radius:11px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:99;
+  max-width:86vw;text-align:center;
+}
+.toast.show{opacity:.95}
+.logo{display:flex;align-items:center;justify-content:center;gap:10px}
+.logo .ic{font-size:30px}
+.footer-tip{text-align:center;color:#9ca3af;font-size:12px;margin-top:26px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:r 0.8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes r{to{transform:rotate(360deg)}}
+.speak-flash{animation:pulse 1s ease infinite}
+@keyframes pulse{0%,100%{box-shadow:0 10px 26px rgba(79,110,247,.4)}50%{box-shadow:0 10px 40px rgba(124,92,255,.75)}}
+/* ---------- 首页功能入口 ---------- */
+.feat{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px}
+.feat .btn{margin-top:0;padding:13px 6px;font-size:14.5px}
+@media (max-width:480px){.feat{grid-template-columns:1fr}}
+/* ---------- 生词本 ---------- */
+.wb-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.wb-count{font-size:13px;color:var(--sub)}
+.wrow{display:flex;align-items:center;gap:10px;background:#f8f9fc;border-radius:11px;padding:11px 13px;margin-bottom:8px}
+.wrow .w{font-weight:800;font-size:16px;font-family:Georgia,"Times New Roman",serif;min-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrow .m{flex:1;font-size:13.5px;color:#374151;line-height:1.4}
+.wrow .b{flex:none;font-size:11.5px;color:var(--sub);background:#eef1f6;border-radius:6px;padding:2px 7px}
+.wrow .del{flex:none;border:none;background:rgba(239,68,68,.1);color:var(--bad);border-radius:8px;padding:5px 11px;font-size:12.5px;cursor:pointer;font-weight:600}
+.wrow .del:active{transform:scale(.96)}
+.wb-empty{text-align:center;color:var(--sub);font-size:14px;padding:26px 0 10px;line-height:1.8}
+/* ---------- 词汇量自测 ---------- */
+.vt-progress{font-size:13px;color:var(--sub);text-align:center;margin-bottom:4px}
+.vt-tier-badge{display:inline-block;font-size:12px;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2));border-radius:999px;padding:3px 12px;margin-bottom:8px}
+.vt-btns{display:flex;gap:12px;margin-top:20px}
+.vt-btns button{flex:1;padding:15px 0;border-radius:13px;font-size:16px;font-weight:700;cursor:pointer;border:1.5px solid var(--line);background:#fff;outline:none}
+.vt-btns .yes{color:var(--ok);border-color:var(--ok)}
+.vt-btns .yes:active{background:rgba(14,159,110,.1)}
+.vt-btns .no{color:var(--bad);border-color:var(--bad)}
+.vt-btns .no:active{background:rgba(239,68,68,.08)}
+.vt-verify-tip{font-size:13px;color:var(--sub);text-align:center;margin-top:12px}
+.vt-est{font-size:52px;font-weight:800;text-align:center;color:var(--brand);margin:4px 0 2px;line-height:1.1}
+.vt-est-label{text-align:center;color:var(--sub);font-size:13px;margin-bottom:14px}
+.vt-tier{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.vt-tier:last-child{border-bottom:none}
+.vt-tier .tn{flex:none;width:3em;color:var(--sub)}
+.vt-tier .bar{flex:1;height:10px;background:#eef1f6;border-radius:99px;overflow:hidden}
+.vt-tier .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand2));border-radius:99px}
+.vt-tier .tv{flex:none;font-weight:700;color:#374151}
+.rank-me{background:rgba(79,110,247,.07);border:1.5px solid var(--brand);border-radius:13px;padding:12px 15px;font-size:14px;color:#374151;text-align:center;margin-bottom:10px}
+.rank-me b{color:var(--brand);font-size:18px}
+.rank-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:11px;background:#f8f9fc;margin-bottom:7px;font-size:14.5px}
+.rank-row.me{border:1.5px solid var(--brand);background:rgba(79,110,247,.07)}
+.rank-row .rk2{flex:none;width:22px;height:22px;border-radius:50%;background:#eef1f6;color:var(--sub);font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.rank-row .rk2.r1{background:linear-gradient(135deg,#fbbf24,#f97316);color:#fff}
+.rank-row .rk2.r2{background:linear-gradient(135deg,#9ca3af,#6b7280);color:#fff}
+.rank-row .rk2.r3{background:linear-gradient(135deg,#e8a87c,#c97b4a);color:#fff}
+.rank-row .rn2{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.rank-row .rv2{flex:none;font-weight:800;color:var(--brand);font-size:16px}
+.rank-row.me .rv2{color:var(--brand)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+'use strict';
+var $ = function(s){ return document.querySelector(s); };
+var app = $('#app');
+
+/* ---------- 全局状态 ---------- */
+var BOOKS = [];
+var INFO = { ips: [], port: 3000 };
+var token = localStorage.getItem('vpk_token') || '';   // 登录令牌
+var account = null;     // {username, name} 当前登录账号
+var session = null;      // {roomId, playerId}
+var es = null;           // EventSource
+var cur = null;          // 最近一次房间状态
+var page = 'home';       // auth | home | room | wrongbook | vocab
+var wrongList = [];      // 生词本数据
+var vq = null;           // 词汇量测试状态 {questions, tiers, idx, answers, phase}
+var clockOffset = 0;     // 服务器时钟偏移
+var rafId = null;
+var lastSpokenQ = -1;
+
+/* ---------- 基础函数 ---------- */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function toast(msg){
+  var t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('show'); }, 2600);
+}
+function copyText(txt, okMsg){
+  function fallback(){
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+      toast(okMsg || '已复制');
+    } catch (e) { toast('复制失败，请手动复制'); }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(function(){ toast(okMsg || '已复制'); }, fallback);
+  } else fallback();
+}
+function api(path, body, method){
+  return fetch(path, {
+    method: method || (body ? 'POST' : 'GET'),
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(function(r){
+    return r.json().catch(function(){ return {}; }).then(function(d){
+      if (!r.ok || d.error) throw new Error(d.error || ('请求失败 ' + r.status));
+      return d;
+    });
+  });
+}
+function speak(word){
+  try {
+    if (!('speechSynthesis' in window)) { toast('当前浏览器不支持语音朗读，建议使用 Chrome/Edge'); return; }
+    var u = new SpeechSynthesisUtterance(word);
+    u.lang = 'en-US';
+    u.rate = 0.85;
+    var voices = speechSynthesis.getVoices();
+    var v = null;
+    for (var i = 0; i < voices.length; i++) {
+      if (/^en(-|_)US/i.test(voices[i].lang)) { v = voices[i]; break; }
+    }
+    if (!v) for (var j = 0; j < voices.length; j++) if (/^en/i.test(voices[j].lang)) { v = voices[j]; break; }
+    if (v) u.voice = v;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+if ('speechSynthesis' in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = function(){}; }
+
+/* ---------- SSE + 轮询兜底 ---------- */
+var pollTimer = null;   // 轮询定时器
+var sseAlive = false;   // 是否已通过 SSE 收到过数据
+var lastStateStr = '';  // 最近一次渲染的状态（排除 serverNow），用于轮询去重
+function applyState(v){
+  try {
+    clockOffset = v.serverNow - Date.now();
+    cur = v;
+    if (page === 'room') {
+      // 轮询每秒一次，但只有状态真正变化才重渲染（避免 DOM 重建吞掉用户点击）
+      var s = JSON.stringify(v, function(k, val){ return k === 'serverNow' ? 0 : val; });
+      if (s !== lastStateStr) { lastStateStr = s; render(); }
+    }
+  } catch (err) {}
+}
+function startPolling(roomId, playerId){
+  if (pollTimer) return;
+  pollTimer = setInterval(function(){
+    fetch('/api/state?roomId=' + encodeURIComponent(roomId) + '&playerId=' + encodeURIComponent(playerId))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d && !d.error) applyState(d); })
+      .catch(function(){});
+  }, 1000);
+}
+function stopPolling(){ if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+function connect(roomId, playerId){
+  if (es) { es.close(); es = null; }
+  sseAlive = false;
+  lastStateStr = '';
+  es = new EventSource('/api/stream?roomId=' + encodeURIComponent(roomId) + '&playerId=' + encodeURIComponent(playerId));
+  es.onmessage = function(e){
+    try {
+      sseAlive = true;
+      stopPolling(); // SSE 正常工作，停掉轮询兜底
+      applyState(JSON.parse(e.data));
+    } catch (err) {}
+  };
+  // 4 秒内 SSE 没收到首帧（网络缓冲了事件流）→ 自动降级为轮询
+  setTimeout(function(){
+    if (!sseAlive && session && session.roomId === roomId) startPolling(roomId, playerId);
+  }, 4000);
+  es.onerror = function(){
+    if (es && es.readyState === 2) {
+      // 服务器断开：EventSource 会自动重连；期间由轮询兜底保证状态更新
+      if (session && session.roomId === roomId) startPolling(roomId, playerId);
+    }
+  };
+}
+function leaveRoom(){
+  if (es) { es.close(); es = null; }
+  stopPolling();
+  sseAlive = false;
+  lastStateStr = '';
+  session = null; cur = null; lastSpokenQ = -1;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  page = 'home';
+  renderHome();
+}
+
+/* ---------- 登录 / 注册 ---------- */
+function onAuthed(d){
+  token = d.token;
+  account = { username: d.username, name: d.name };
+  localStorage.setItem('vpk_token', token);
+  page = 'home';
+  renderHome();
+}
+function renderAuth(){
+  page = 'auth';
+  app.innerHTML =
+  '<h1><span class="logo"><span class="ic">⚡</span>单词<span class="vs">PK</span></span></h1>' +
+  '<div class="tagline">登录后即可对战 · 生词本与昵称绑定账号，永不错乱</div>' +
+  '<div class="card">' +
+    '<div class="tabs">' +
+      '<button id="tabLogin" class="on">登录</button>' +
+      '<button id="tabReg">注册</button>' +
+    '</div>' +
+    '<label class="fl">用户名</label>' +
+    '<input type="text" id="userInput" maxlength="16" placeholder="3-16 位字母/数字/下划线" autocapitalize="off" spellcheck="false">' +
+    '<label class="fl">密码</label>' +
+    '<input type="password" id="passInput" maxlength="32" placeholder="至少 6 位">' +
+    '<div id="nameWrap" style="display:none">' +
+      '<label class="fl">昵称（游戏中显示，可随时修改）</label>' +
+      '<input type="text" id="nickInput" maxlength="12" placeholder="给自己起个名字">' +
+    '</div>' +
+    '<button class="btn" id="authBtn">登录 🚀</button>' +
+    '<div class="hint"><b>说明</b><br>· 账号用于保存你的<b>独立生词本</b>和<b>昵称</b>，换设备、清缓存都不丢；<br>· 按你的要求<b>不支持上传头像</b>；<br>· 注册后自动登录。</div>' +
+  '</div>';
+
+  var mode = 'login';
+  function switchTab(m){
+    mode = m;
+    $('#tabLogin').classList.toggle('on', m === 'login');
+    $('#tabReg').classList.toggle('on', m === 'reg');
+    $('#nameWrap').style.display = m === 'reg' ? '' : 'none';
+    $('#authBtn').textContent = m === 'login' ? '登录 🚀' : '注册并登录 🚀';
+  }
+  $('#tabLogin').onclick = function(){ switchTab('login'); };
+  $('#tabReg').onclick = function(){ switchTab('reg'); };
+
+  $('#authBtn').onclick = function(){
+    var username = $('#userInput').value.trim();
+    var password = $('#passInput').value;
+    var btn = this; btn.disabled = true;
+    var restore = function(){ btn.disabled = false; };
+    if (mode === 'reg') {
+      if (!/^[a-zA-Z0-9_]{3,16}$/.test(username)) { toast('用户名需 3-16 位字母/数字/下划线'); restore(); return; }
+      if (password.length < 6) { toast('密码至少 6 位'); restore(); return; }
+      api('/api/register', { username: username, password: password, name: $('#nickInput').value.trim() })
+        .then(onAuthed).catch(function(e){ toast(e.message); restore(); });
+    } else {
+      api('/api/login', { username: username, password: password })
+        .then(onAuthed).catch(function(e){ toast(e.message); restore(); });
+    }
+  };
+}
+
+/* ---------- 首页 ---------- */
+/* 当前是否通过公网地址访问（非 localhost / 非局域网 IP） */
+function isPublicVisit(){
+  var h = location.hostname;
+  return h !== 'localhost' && h !== '127.0.0.1' && !/^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
+function renderHome(){
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  var bookOpts = BOOKS.map(function(b){
+    return '<option value="' + esc(b.id) + '">' + esc(b.name) + '（' + b.count + '词）</option>';
+  }).join('');
+  var ipHtml = INFO.ips && INFO.ips.length
+    ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
+    : '<code>http://本机IP:' + INFO.port + '</code>';
+  app.innerHTML =
+  '<div class="topbar" style="justify-content:space-between">' +
+    '<span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span>' +
+    '<span><button class="copybtn" id="editNameBtn">✏️ 昵称</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
+  '</div>' +
+  '<h1><span class="logo"><span class="ic">⚡</span>单词<span class="vs">PK</span></span></h1>' +
+  '<div class="tagline">浏览器/App 直接对战 · 局域网 / 公网均可 · 最高 5 人同场 PK</div>' +
+  '<div class="card">' +
+    '<div class="tabs">' +
+      '<button id="tabCreate" class="on">创建房间</button>' +
+      '<button id="tabJoin">加入房间</button>' +
+    '</div>' +
+    '<div id="panelCreate">' +
+      '<label class="fl">选择词汇本</label>' +
+      '<select id="bookSel" style="width:100%;padding:12px;border:1.5px solid #e5e7eb;border-radius:12px;font-size:15px;background:#fafbfc;">' + bookOpts + '</select>' +
+      '<label class="fl">对战模式</label>' +
+      '<div class="seg" id="modeSeg">' +
+        '<button data-v="word" class="on">📖 看词选义<small>显示英文单词</small></button>' +
+        '<button data-v="listen">🎧 听音辨义<small>只听读音不看词</small></button>' +
+      '</div>' +
+      '<label class="fl">题目数量</label>' +
+      '<div class="seg" id="countSeg">' +
+        '<button data-v="10">10 题</button><button data-v="20" class="on">20 题</button><button data-v="30">30 题</button>' +
+      '</div>' +
+      '<button class="btn" id="createBtn">创建房间 ⚡</button>' +
+    '</div>' +
+    '<div id="panelJoin" style="display:none">' +
+      '<label class="fl">房间号（房主创建后告知）</label>' +
+      '<input type="text" id="codeInput" maxlength="4" placeholder="例如：ABCD" style="text-transform:uppercase;letter-spacing:6px;font-size:20px;text-align:center">' +
+      '<button class="btn" id="joinBtn">加入对战 🤝</button>' +
+    '</div>' +
+    '<div class="hint"><b>怎么和朋友对战？</b><br>' +
+      (INFO.publicUrl
+        ? '1. 你创建房间后，<b>把这个公网网址发给朋友</b>（任何网络都能进，无需同一 WiFi）：<br><code>' + esc(INFO.publicUrl) + '</code><br>' +
+          '<button class="copybtn" id="copyLinkBtn">📋 复制公网网址</button><br>' +
+          '2. 朋友打开后输入同一房间号即可同场 PK（也支持单人练习）。'
+        : (isPublicVisit()
+          ? '1. 你创建房间后，<b>把这个网址直接发给朋友</b>（任何网络都能进，无需同一 WiFi）：<br><code>' + esc(location.origin) + '</code><br>' +
+            '<button class="copybtn" id="copyLinkBtn">📋 复制网址</button><br>' +
+            '2. 朋友打开后输入同一房间号即可同场 PK（也支持单人练习）。'
+          : '1. 你在本机启动服务后创建房间；<br>' +
+            '2. 朋友连<b>同一个 WiFi</b>，用手机/电脑浏览器打开 ' + ipHtml + '；<br>' +
+            '3. 输入同一房间号即可同场 PK（也支持单人练习）。')) +
+    '</div>' +
+  '</div>' +
+  '<div class="card feat">' +
+    '<button class="btn" id="wrongbookBtn">📒 我的生词本</button>' +
+    '<button class="btn ghost" id="vocabBtn">📊 词汇量自测</button>' +
+  '</div>' +
+  '<div class="footer-tip">计分规则：答对 +100 分，答题越快加成越多（最多 +20）· 单房间最高 5 人对战<br>答错的词会自动记入「我的生词本」，可随时复习</div>';
+
+  function switchTab(which){
+    $('#tabCreate').classList.toggle('on', which === 'create');
+    $('#tabJoin').classList.toggle('on', which === 'join');
+    $('#panelCreate').style.display = which === 'create' ? '' : 'none';
+    $('#panelJoin').style.display = which === 'join' ? '' : 'none';
+  }
+  $('#tabCreate').onclick = function(){ switchTab('create'); };
+  $('#tabJoin').onclick = function(){ switchTab('join'); };
+  $('#wrongbookBtn').onclick = function(){ page = 'wrongbook'; renderWrongbook(); };
+  $('#vocabBtn').onclick = function(){ page = 'vocab'; renderVocabStart(); };
+
+  function segInit(id){
+    var seg = $(id);
+    seg.addEventListener('click', function(e){
+      var b = e.target.closest('button'); if (!b) return;
+      seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  }
+  segInit('#modeSeg'); segInit('#countSeg');
+  var clb = $('#copyLinkBtn');
+  if (clb) clb.onclick = function(){ copyText(INFO.publicUrl || location.origin, '网址已复制，发给朋友吧'); };
+  var enb = $('#editNameBtn');
+  if (enb) enb.onclick = function(){
+    var nn = prompt('修改昵称（最多 12 字）：', account ? account.name : '');
+    if (nn === null) return;
+    nn = nn.trim().slice(0, 12);
+    if (!nn) return;
+    api('/api/me', { token: token, name: nn }, 'POST')
+      .then(function(d){ account.name = d.name; toast('昵称已更新'); renderHome(); })
+      .catch(function(e){ toast(e.message); });
+  };
+  var lob = $('#logoutBtn');
+  if (lob) lob.onclick = function(){
+    api('/api/logout', { token: token }, 'POST').catch(function(){});
+    token = ''; account = null; localStorage.removeItem('vpk_token');
+    page = 'auth'; renderAuth();
+  };
+
+  $('#createBtn').onclick = function(){
+    var mode = $('#modeSeg button.on').getAttribute('data-v');
+    var count = $('#countSeg button.on').getAttribute('data-v');
+    var btn = this; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>创建中…';
+    api('/api/create', { token: token, bookId: $('#bookSel').value, mode: mode, count: +count })
+      .then(function(d){
+        session = { roomId: d.roomId, playerId: d.playerId };
+        page = 'room';
+        connect(d.roomId, d.playerId);
+      })
+      .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '创建房间 ⚡'; });
+  };
+  $('#joinBtn').onclick = function(){
+    var code = $('#codeInput').value.trim().toUpperCase();
+    if (code.length !== 4) { toast('请输入 4 位房间号'); return; }
+    var btn = this; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>加入中…';
+    api('/api/join', { token: token, roomId: code })
+      .then(function(d){
+        session = { roomId: d.roomId, playerId: d.playerId };
+        page = 'room';
+        connect(d.roomId, d.playerId);
+      })
+      .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '加入对战 🤝'; });
+  };
+}
+
+/* ---------- 生词本 ---------- */
+function renderWrongbook(){
+  api('/api/mywords?token=' + encodeURIComponent(token), null, 'GET')
+    .then(function(d){
+      wrongList = d.words || [];
+      var rows = wrongList.length ? wrongList.map(function(w){
+        var d2 = new Date(w.at);
+        var ts = d2.getFullYear() + '-' + ('0' + (d2.getMonth() + 1)).slice(-2) + '-' + ('0' + d2.getDate()).slice(-2) + ' ' + ('0' + d2.getHours()).slice(-2) + ':' + ('0' + d2.getMinutes()).slice(-2);
+        return '<div class="wrow">' +
+          '<span class="w">' + esc(w.word) + '</span>' +
+          '<span class="m">' + esc(w.meaning) + '</span>' +
+          '<span class="b">' + esc(w.book || '') + '</span>' +
+          '<button class="del" data-w="' + esc(w.word) + '">删除</button>' +
+        '</div>';
+      }).join('') : '<div class="wb-empty">还没有生词，去打一局对战吧！<br>答错的单词会自动收进这里 📖</div>';
+      app.innerHTML =
+      '<h1>📒 我的生词本</h1>' +
+      '<div class="tagline">账号 @' + esc(d.username) + ' · 对战答错的词自动收录，仅你自己可见</div>' +
+      '<div class="card">' +
+        '<div class="wb-head"><span class="wb-count">共 ' + wrongList.length + ' 个生词' + (wrongList.length >= 500 ? '（最多保留 500 个）' : '') + '</span>' +
+          (wrongList.length ? '<button class="btn ghost" id="clearAll" style="width:auto;margin:0;padding:8px 14px;font-size:13px">🗑 清空</button>' : '') +
+        '</div>' +
+        rows +
+      '</div>' +
+      '<div class="card" style="padding:14px"><button class="btn ghost" id="backHome">返回首页</button></div>';
+      app.querySelectorAll('.wrow .del').forEach(function(b){
+        b.onclick = function(){
+          var w = b.getAttribute('data-w');
+          api('/api/mywords?token=' + encodeURIComponent(token) + '&word=' + encodeURIComponent(w), null, 'DELETE')
+            .then(function(){ toast('已删除 ' + w); renderWrongbook(); })
+            .catch(function(e){ toast(e.message); });
+        };
+      });
+      var ca = $('#clearAll');
+      if (ca) ca.onclick = function(){
+        if (!confirm('确定清空全部 ' + wrongList.length + ' 个生词？')) return;
+        api('/api/mywords?token=' + encodeURIComponent(token), null, 'DELETE')
+          .then(function(){ toast('已清空'); renderWrongbook(); })
+          .catch(function(e){ toast(e.message); });
+      };
+      $('#backHome').onclick = function(){ page = 'home'; renderHome(); };
+    })
+    .catch(function(e){ toast(e.message); page = 'home'; renderHome(); });
+}
+
+/* ---------- 词汇量自测 ---------- */
+function renderVocabStart(){
+  app.innerHTML =
+  '<h1>📊 词汇量自测</h1>' +
+  '<div class="tagline">7 个难度层 · 每层 6 题 · 约 2 分钟测完 · 成绩记入账号 @' + esc(account ? account.username : '') + '</div>' +
+  '<div class="card">' +
+    '<div class="hint"><b>测试规则</b><br>' +
+      '· 单词从「中考 → 高考 → 四级 → 六级 → 考研 → 雅思 → 托福」逐层随机出现；<br>' +
+      '· 认识的词选「✅ 认识」并挑出正确释义（选对才计认识）；<br>' +
+      '· 认识但释义选错 = 拿不准，算一半；完全没见过就选「❌ 不认识」；<br>' +
+      '· 按每层认识比例估算该层词数，累加得总词汇量，最好成绩进排行榜。' +
+    '</div>' +
+    '<button class="btn" id="vtStart">开始测试 🚀</button>' +
+    '<button class="btn ghost" id="vtRankOnly">查看排行榜 🏆</button>' +
+    '<button class="btn ghost" id="vtBack">返回首页</button>' +
+  '</div>';
+  $('#vtStart').onclick = function(){
+    var btn = this; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>出题中…';
+    api('/api/vocabtest/questions')
+      .then(function(d){
+        vq = { questions: d.questions, tiers: d.tiers, idx: 0, answers: [], phase: 'q' };
+        renderVocabQ();
+      })
+      .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '开始测试 🚀'; });
+  };
+  $('#vtRankOnly').onclick = renderVocabRank;
+  $('#vtBack').onclick = function(){ page = 'home'; renderHome(); };
+}
+
+function renderVocabQ(){
+  if (!vq) { renderVocabStart(); return; }
+  var q = vq.questions[vq.idx];
+  var tierName = vq.tiers[q.tier] ? vq.tiers[q.tier].name : '';
+  var isVerify = vq.phase === 'verify';
+  var letters = ['A','B','C','D'];
+  app.innerHTML =
+  '<h1>📊 词汇量自测</h1>' +
+  '<div class="card" style="text-align:center">' +
+    '<div class="vt-progress">第 ' + (vq.idx + 1) + ' / ' + vq.questions.length + ' 题 · ' + esc(tierName) + ' 难度</div>' +
+    (isVerify ? '' : '<div class="word" style="margin-top:4px">' + esc(q.word) + '</div>') +
+    (isVerify
+      ? '<div class="vt-verify-tip">这个词你认识吗？选出正确释义<br>（认识但选错 = 拿不准，算一半）</div>' +
+        '<div class="opts">' + q.options.map(function(o, i){
+          return '<button class="opt" data-i="' + i + '"><span class="k">' + letters[i] + '</span><span>' + esc(o) + '</span></button>';
+        }).join('') + '</div>'
+      : '<div class="vt-btns">' +
+          '<button class="yes" id="vtYes">✅ 认识</button>' +
+          '<button class="no" id="vtNo">❌ 不认识</button>' +
+        '</div>') +
+  '</div>' +
+  '<div class="card" style="padding:14px"><button class="btn ghost" id="vtQuit">退出测试</button></div>';
+
+  function next(credit){
+    vq.answers.push({ word: q.word, tier: q.tier, credit: credit });
+    vq.idx += 1;
+    if (vq.idx >= vq.questions.length) { vq.phase = 'done'; renderVocabResult(); }
+    else { vq.phase = 'q'; renderVocabQ(); }
+  }
+  if (isVerify) {
+    app.querySelectorAll('.opt').forEach(function(btn){
+      btn.onclick = function(){
+        var i = +btn.getAttribute('data-i');
+        next(i === q.correctIndex ? 1 : 0.5);
+      };
+    });
+  } else {
+    $('#vtYes').onclick = function(){ vq.phase = 'verify'; renderVocabQ(); };
+    $('#vtNo').onclick = function(){ next(0); };
+  }
+  $('#vtQuit').onclick = function(){ vq = null; page = 'home'; renderHome(); };
+}
+
+function renderVocabResult(){
+  var name = account ? account.username : '';
+  var counts = {};
+  vq.answers.forEach(function(a){ counts[a.tier] = (counts[a.tier] || 0) + 1; });
+  var countsArr = (vq.tiers || []).map(function(_, i){ return counts[i] || 0; });
+  app.innerHTML = '<h1>📊 正在测算…</h1><div class="tagline"><span class="spin"></span></div>';
+  api('/api/vocabtest/submit', { token: token, answers: vq.answers, counts: countsArr })
+    .then(function(d){
+      var maxE = Math.max.apply(null, d.estimates.map(function(t){ return t.value; }).concat([1]));
+      var tiersHtml = d.estimates.map(function(t){
+        var pct = Math.round(t.value / maxE * 100);
+        return '<div class="vt-tier"><span class="tn">' + esc(t.tier) + '</span>' +
+          '<span class="bar"><i style="width:' + pct + '%"></i></span>' +
+          '<span class="tv">' + t.value + '</span></div>';
+      }).join('');
+      app.innerHTML =
+      '<h1>📊 测试完成</h1>' +
+      '<div class="card" style="text-align:center">' +
+        '<div class="vt-est">≈ ' + d.estimate.toLocaleString() + '</div>' +
+        '<div class="vt-est-label">你的估算词汇量（各层认识比例 × 该层词数）</div>' +
+        tiersHtml +
+      '</div>' +
+      '<div class="card" id="vtRankBox"><div style="text-align:center;color:var(--sub);padding:10px">加载排行榜…</div></div>' +
+      '<div class="card" style="padding:14px">' +
+        '<button class="btn" id="vtAgain">再测一次 🔁</button>' +
+        '<button class="btn ghost" id="vtDone">返回首页</button>' +
+      '</div>';
+      $('#vtAgain').onclick = function(){ renderVocabStart(); };
+      $('#vtDone').onclick = function(){ vq = null; page = 'home'; renderHome(); };
+      api('/api/vocabrank?token=' + encodeURIComponent(token), null, 'GET')
+        .then(function(rk){
+          var box = $('#vtRankBox');
+          if (!box) return;
+          var meHtml = rk.you
+            ? '<div class="rank-me">我的排名 <b>#' + rk.you.rank + '</b> · 最好成绩 <b>' + rk.you.best.toLocaleString() + '</b> 词 · 测过 ' + rk.you.count + ' 次</div>'
+            : '';
+          var rows = (rk.list || []).slice(0, 30).map(function(x){
+            var medal = x.rank === 1 ? '🥇' : (x.rank === 2 ? '🥈' : (x.rank === 3 ? '🥉' : x.rank));
+            var me = rk.you && String(x.name).toLowerCase() === String(account ? account.username : '').toLowerCase() ? ' me' : '';
+            return '<div class="rank-row' + me + '">' +
+              '<span class="rk2 r' + Math.min(x.rank, 3) + '">' + medal + '</span>' +
+              '<span class="rn2">' + esc(x.name) + '</span>' +
+              '<span class="rv2">' + x.best.toLocaleString() + '</span>' +
+            '</div>';
+          }).join('');
+          box.innerHTML = '<div class="wb-head"><span class="wb-count">🏆 词汇量排行榜（最好成绩）</span></div>' + meHtml + (rows || '<div class="wb-empty">暂无数据</div>');
+        })
+        .catch(function(){
+          var box = $('#vtRankBox');
+          if (box) box.innerHTML = '<div class="wb-empty">排行榜加载失败，成绩已保存</div>';
+        });
+    })
+    .catch(function(e){ toast(e.message); renderVocabStart(); });
+}
+
+function renderVocabRank(){
+  var name = account ? account.username : '';
+  api('/api/vocabrank?token=' + encodeURIComponent(token), null, 'GET')
+    .then(function(d){
+      var meHtml = d.you
+        ? '<div class="rank-me">我的排名 <b>#' + d.you.rank + '</b> · 最好成绩 <b>' + d.you.best.toLocaleString() + '</b> 词 · 测过 ' + d.you.count + ' 次</div>'
+        : '<div class="rank-me">你还没测过词汇量，测一次就能上榜 🚀</div>';
+      var rows = (d.list || []).slice(0, 50).map(function(x){
+        var medal = x.rank === 1 ? '🥇' : (x.rank === 2 ? '🥈' : (x.rank === 3 ? '🥉' : x.rank));
+        var me = d.you && String(x.name).toLowerCase() === String(name).toLowerCase() ? ' me' : '';
+        return '<div class="rank-row' + me + '">' +
+          '<span class="rk2 r' + Math.min(x.rank, 3) + '">' + medal + '</span>' +
+          '<span class="rn2">' + esc(x.name) + '</span>' +
+          '<span class="rv2">' + x.best.toLocaleString() + '</span>' +
+        '</div>';
+      }).join('');
+      app.innerHTML =
+      '<h1>🏆 词汇量排行榜</h1>' +
+      '<div class="tagline">按最好成绩排序 · 共 ' + (d.list || []).length + ' 人参与</div>' +
+      '<div class="card">' + meHtml + rows + '</div>' +
+      '<div class="card" style="padding:14px">' +
+        '<button class="btn" id="rtStart">我也要测 🚀</button>' +
+        '<button class="btn ghost" id="rtBack">返回首页</button>' +
+      '</div>';
+      $('#rtStart').onclick = renderVocabStart;
+      $('#rtBack').onclick = function(){ page = 'home'; renderHome(); };
+    })
+    .catch(function(e){ toast(e.message); page = 'home'; renderHome(); });
+}
+
+/* ---------- 大厅 ---------- */
+function renderLobby(v){
+  var meHost = false;
+  var playerRows = v.players.map(function(p){
+    if (p.id === v.you) meHost = p.isHost;
+    return '<div class="prow"><span class="dot ' + (p.connected ? 'on' : '') + '"></span>' +
+      esc(p.name) + (p.isHost ? ' <span class="host">👑 房主</span>' : '') +
+      (p.id === v.you ? ' <span class="me">我</span>' : '') +
+      '</div>';
+  }).join('');
+  var ipHtml = INFO.ips && INFO.ips.length
+    ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
+    : '<code>http://本机IP:' + INFO.port + '</code>';
+  var modeName = v.settings.mode === 'listen' ? '🎧 听音辨义' : '📖 看词选义';
+  var shareHtml = isPublicVisit()
+    ? '把这个网址发给朋友（任何网络都能进，无需同一 WiFi）：<br><code>' + esc(location.origin) + '</code><br>' +
+      '<button class="copybtn" id="copyLinkBtn">📋 复制网址 + 房间号</button>'
+    : '朋友连<b>同一个 WiFi</b> 后打开 ' + ipHtml + '<br>输入这个房间号即可加入';
+  app.innerHTML =
+  '<div class="card" style="text-align:center">' +
+    '<div class="qmeta">房间号 · 告诉你的朋友</div>' +
+    '<div class="roomcode-big">' + esc(v.roomId) + '</div>' +
+    '<div class="share">' + shareHtml + '</div>' +
+  '</div>' +
+  '<div class="card">' +
+    '<div class="topbar">' +
+      '<span class="chip mode">' + modeName + '</span>' +
+      '<span class="chip">' + esc(v.bookName) + '</span>' +
+      '<span class="chip">' + v.settings.count + ' 题</span>' +
+      '<span class="chip">👥 <b>' + v.players.length + '</b> / 5 人</span>' +
+    '</div>' +
+    '<div class="plist">' + playerRows + '</div>' +
+    (meHost
+      ? '<button class="btn" id="startBtn">开始对战 ' + (v.players.length > 1 ? '🚀' : '（单人练习）▶') + '</button>' +
+        '<div class="hint">房主随时可以开始；人数 ≥1 即可（单人也能练），最多 5 人。本局开始后不能再加入，结束后可再加入。</div>'
+      : '<div class="waiting">等待房主开始… 👀</div>') +
+    '<button class="btn ghost" id="backBtn">返回首页</button>' +
+  '</div>';
+  var sb = $('#startBtn');
+  if (sb) sb.onclick = function(){
+    sb.disabled = true; sb.innerHTML = '<span class="spin"></span>准备中…';
+    api('/api/start', { roomId: session.roomId, playerId: session.playerId })
+      .catch(function(e){ toast(e.message); sb.disabled = false; sb.innerHTML = '开始对战 🚀'; });
+  };
+  var clb = $('#copyLinkBtn');
+  if (clb) clb.onclick = function(){
+    copyText('单词PK 对战地址：' + location.origin + '（房间号 ' + v.roomId + '）', '网址和房间号已复制');
+  };
+  $('#backBtn').onclick = leaveRoom;
+}
+
+/* ---------- 对战 ---------- */
+function renderGame(v){
+  var q = v.question || {};
+  var isListen = v.settings.mode === 'listen';
+  var players = v.players.slice().sort(function(a,b){ return b.score - a.score || b.correctCount - a.correctCount; });
+  var myRank = 1;
+  for (var ri = 0; ri < players.length; ri++) { if (players[ri].id === v.you) { myRank = ri + 1; break; } }
+  var scoreChips = players.map(function(p, idx){
+    var isMe = p.id === v.you;
+    return '<div class="schip ' + (p.answered ? 'ans' : '') + (isMe ? ' me' : '') + '" title="' + esc(p.name) + '">' +
+      '<span class="rk r' + Math.min(idx + 1, 3) + '">' + (idx + 1) + '</span>' +
+      '<span class="nm">' + esc(p.name) + (isMe ? '（我）' : '') + '</span>' +
+      '<span class="sc">' + p.score + '</span></div>';
+  }).join('');
+  var answered = v.phase === 'question' && q.myChoice !== null && q.myChoice !== undefined;
+  // 我已答且服务器已回传结果 → 立即显示对错
+  var myRes = answered && q.myCorrect !== undefined && q.myCorrect !== null
+    ? { correct: q.myCorrect, gained: q.myGained, correctIndex: q.correctIndex, choice: q.myChoice }
+    : null;
+  var letters = ['A','B','C','D'];
+
+  var centerHtml;
+  if (v.phase === 'question') {
+    if (isListen) {
+      centerHtml = '<button class="listen-btn speak-flash" id="replayBtn" title="点击重听">🔊</button>' +
+        '<div class="listen-tip">正在播放单词读音 · 点喇叭可重听</div>';
+    } else {
+      centerHtml = '<div class="word">' + esc(q.word) + '</div>';
+    }
+  } else {
+    centerHtml = '<div class="word">' + esc(q.word) + '</div>' +
+      '<div class="meaning">✔ ' + esc(q.options[v.lastResult ? v.lastResult.correctIndex : 0]) + '</div>';
+  }
+
+  var optsHtml = (q.options || []).map(function(o, i){
+    var cls = 'opt';
+    var dis = (v.phase === 'reveal') || answered;
+    if (v.phase === 'reveal') {
+      var lr = v.lastResult;
+      if (lr && i === lr.correctIndex) cls += ' correct';
+      else if (lr && lr.results[v.you] && lr.results[v.you].choice === i) cls += ' wrong';
+      else if (lr && i === q.myChoice) cls += ' picked';
+    } else if (myRes) {
+      // 已答：立即标出我的对错（正确项绿 / 我的错项红）
+      if (i === myRes.correctIndex) cls += ' correct';
+      else if (i === myRes.choice) cls += ' wrong';
+    } else if (answered && i === q.myChoice) {
+      cls += ' picked';
+    }
+    return '<button class="' + cls + '" data-i="' + i + '" ' + (dis ? 'disabled' : '') + '>' +
+      '<span class="k">' + letters[i] + '</span><span>' + esc(o) + '</span></button>';
+  }).join('');
+
+  var gainHtml = '';
+  if (v.phase === 'reveal' && v.lastResult) {
+    gainHtml = '<div class="gain">' + v.players.map(function(p){
+      var r = v.lastResult.results[p.id];
+      if (!r) return '<span>' + esc(p.name) + ' 未作答</span>';
+      return '<span class="' + (r.correct ? 'up' : 'down') + '">' + esc(p.name) + ' ' + (r.correct ? '+' + r.gained : '✗') + '</span>';
+    }).join('') + '</div>';
+  }
+
+  var waitHtml = '';
+  if (v.phase === 'question' && answered) {
+    if (myRes) {
+      waitHtml = myRes.correct
+        ? '<div class="myfb ok">🎉 答对了！+<b>' + myRes.gained + '</b> 分（基础 100 + 速度加成 ' + (myRes.gained - 100) + '）</div>'
+        : '<div class="myfb bad">😅 答错了，正确答案已标绿</div>';
+    } else {
+      waitHtml = '<div class="waiting">已作答，等待其他玩家…（答得越快加成越高）</div>';
+    }
+  }
+  if (v.phase === 'reveal') {
+    waitHtml = '<div class="waiting">下一题马上开始…</div>';
+  }
+
+  app.innerHTML =
+  '<div class="topbar">' +
+    '<span class="chip">房间 <b>' + esc(v.roomId) + '</b></span>' +
+    '<span class="chip">' + esc(v.bookName) + '</span>' +
+    '<span class="chip mode">' + (isListen ? '🎧 听音辨义' : '📖 看词选义') + '</span>' +
+    '<span class="chip">第 <b>' + (v.qIndex + 1) + '</b> / ' + v.total + ' 题</span>' +
+    '<span class="chip rankchip">我的排名 <b>#' + myRank + '</b></span>' +
+  '</div>' +
+  '<div class="scores">' + scoreChips + '</div>' +
+  '<div class="qwrap">' +
+    '<div class="qmeta">' + (v.phase === 'reveal' ? '本题答案' : (isListen ? '听单词，选出中文意思' : '选出这个单词的中文意思')) + '</div>' +
+    centerHtml +
+    '<div class="timerbar" id="tbar"><i id="tfill"></i></div>' +
+    '<div class="tsec" id="tsec"></div>' +
+    '<div class="opts">' + optsHtml + '</div>' +
+    waitHtml + gainHtml +
+  '</div>';
+
+  // 选项点击
+  app.querySelectorAll('.opt').forEach(function(btn){
+    btn.onclick = function(){
+      if (!session || answered) return;
+      answered = true;
+      api('/api/answer', { roomId: session.roomId, playerId: session.playerId, qIndex: v.qIndex, choice: +btn.getAttribute('data-i') })
+        .catch(function(e){ toast(e.message); });
+    };
+  });
+  var rb = $('#replayBtn');
+  if (rb) rb.onclick = function(){ speak(q.word); };
+
+  // 听力模式自动朗读（每题一次）
+  if (v.phase === 'question' && isListen && lastSpokenQ !== v.qIndex) {
+    lastSpokenQ = v.qIndex;
+    setTimeout(function(){ if (cur && cur.phase === 'question') speak(q.word); }, 500);
+  }
+
+  // 倒计时条
+  if (rafId) cancelAnimationFrame(rafId);
+  var fill = $('#tfill'), tbar = $('#tbar'), tsec = $('#tsec');
+  if (v.phase === 'question' && q.deadline) {
+    var dur = q.durationMs || 12000;
+    var deadlineLocal = q.deadline - clockOffset;
+    function tick(){
+      var now = Date.now();
+      var remain = Math.max(0, deadlineLocal - now);
+      var pct = Math.max(0, Math.min(100, remain / dur * 100));
+      if (fill) fill.style.width = pct + '%';
+      if (tbar) tbar.classList.toggle('danger', pct < 25);
+      if (tsec) tsec.textContent = (remain / 1000).toFixed(1) + ' 秒';
+      if (pct > 0 && cur && cur.phase === 'question') rafId = requestAnimationFrame(tick);
+    }
+    tick();
+  } else {
+    if (fill) fill.style.width = '0%';
+    if (tsec) tsec.textContent = '';
+  }
+}
+
+/* ---------- 结果 ---------- */
+function renderResult(v){
+  var medals = ['🥇','🥈','🥉'];
+  var players = v.players.slice().sort(function(a,b){ return b.score - a.score || b.correctCount - a.correctCount; });
+  var meHost = false;
+  var rows = players.map(function(p, i){
+    if (p.id === v.you) meHost = p.isHost;
+    var medal = i < 3 ? medals[i] : '<span style="color:#9ca3af;font-weight:700">' + (i + 1) + '</span>';
+    var meCls = i === 0 ? 'rrow first' : 'rrow';
+    var statHtml = p.isNew
+      ? '<b style="color:var(--brand)">--</b>刚加入 · 等待下一局'
+      : '<b>' + p.score + ' 分</b>答对 ' + p.correctCount + ' / ' + v.total;
+    return '<div class="' + meCls + '">' +
+      '<div class="medal">' + medal + '</div>' +
+      '<div class="rname">' + esc(p.name) + (p.id === v.you ? '（我）' : '') + '</div>' +
+      '<div class="rstat">' + statHtml + '</div>' +
+    '</div>';
+  }).join('');
+  app.innerHTML =
+  '<h1>🏆 对战结束</h1>' +
+  '<div class="tagline">' + esc(v.bookName) + ' · ' + (v.settings.mode === 'listen' ? '听音辨义' : '看词选义') + ' · ' + v.total + ' 题</div>' +
+  '<div class="card rank">' + rows + '</div>' +
+  '<div class="card" style="padding:16px">' +
+    (meHost
+      ? '<button class="btn" id="replayBtn">再来一局 🔁（换一批新词）</button>'
+      : '<div class="waiting" style="margin:6px 0 4px">等房主发起再来一局…</div>') +
+    '<button class="btn ghost" id="backBtn">返回首页</button>' +
+  '</div>';
+  var rp = $('#replayBtn');
+  if (rp) rp.onclick = function(){
+    rp.disabled = true; rp.innerHTML = '<span class="spin"></span>生成新题目…';
+    api('/api/replay', { roomId: session.roomId, playerId: session.playerId })
+      .catch(function(e){ toast(e.message); rp.disabled = false; rp.innerHTML = '再来一局 🔁'; });
+  };
+  $('#backBtn').onclick = leaveRoom;
+}
+
+/* ---------- 渲染分发 ---------- */
+function render(){
+  if (page !== 'room' || !cur) return;
+  if (cur.phase === 'lobby') renderLobby(cur);
+  else if (cur.phase === 'result') renderResult(cur);
+  else renderGame(cur);
+}
+
+/* ---------- 启动 ---------- */
+function boot(){
+  Promise.all([
+    api('/api/books').then(function(d){ BOOKS = d.books; }).catch(function(){}),
+    api('/api/info').then(function(d){ INFO = d; }).catch(function(){}),
+  ]).then(function(){
+    if (!token) { renderAuth(); return; }
+    // 已有令牌：校验有效性并取回账号信息
+    return api('/api/me?token=' + encodeURIComponent(token), null, 'GET')
+      .then(function(d){
+        if (d && d.username) { account = { username: d.username, name: d.name }; renderHome(); }
+        else { token = ''; localStorage.removeItem('vpk_token'); renderAuth(); }
+      })
+      .catch(function(){ token = ''; localStorage.removeItem('vpk_token'); renderAuth(); });
+  });
+}
+boot();
+</script>
+<script>
+/* 注册 Service Worker：让网页可「添加到主屏幕」当作 App 安装，并支持离线打开首页 */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function(){ navigator.serviceWorker.register('/sw.js').catch(function(){}); });
+}
+</script>
+</body>
+</html>

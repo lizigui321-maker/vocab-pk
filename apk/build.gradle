@@ -1,0 +1,4 @@
+// 项目级 build.gradle（Android Gradle Plugin 版本在此声明）
+plugins {
+    id 'com.android.application' version '8.2.0' apply false
+}

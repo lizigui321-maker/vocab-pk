@@ -44,7 +44,7 @@ async function main() {
   ok(reg.status === 200 && reg.data.token, '账号 A 注册成功');
   const tok = reg.data.token;
   const ov0 = await api('/api/study/overview?token=' + tok);
-  ok(ov0.status === 200 && ov0.data.plan === null && Array.isArray(ov0.data.books) && ov0.data.books.length === 15, '无计划时 plan=null 且返回 15 本词书（含 AWL + 西语）');
+  ok(ov0.status === 200 && ov0.data.plan === null && Array.isArray(ov0.data.books) && ov0.data.books.length === 14, '无计划时 plan=null 且返回 14 本词书（12 英语 + AWL + 西语 2000）');
 
   console.log('== 3. 无计划时取 session 应被拒 ==');
   const noSession = await api('/api/study/session?token=' + tok);
@@ -171,16 +171,92 @@ async function main() {
   for (let i = 0; i < qOrder.length; i++) if (qOrder[i] !== awlOrder[i]) { awlOrdered = false; break; }
   ok(awlOrdered, 'AWL 保持 sublist 原始顺序（前 50 词与词书一致）');
 
-  console.log('== 14.6 西语词书 es-a1：语言 + 不受英语词频跳过 ==');
-  const planEs = await api('/api/study/plan', { token: tok, bookId: 'es-a1', dailyNew: 30, vocabEstimate: 5000 });
-  ok(planEs.status === 200 && planEs.data.plan.bookId === 'es-a1', '西语 es-a1 计划已保存');
+  console.log('== 14.6 西语词书 es：语言 + 不受英语词频跳过 ==');
+  const planEs = await api('/api/study/plan', { token: tok, bookId: 'es', dailyNew: 30, vocabEstimate: 5000 });
+  ok(planEs.status === 200 && planEs.data.plan.bookId === 'es', '西语 es 计划已保存');
   ok(planEs.data.skipped === 0, '西语词不受英语词频跳过影响（skipped=0）');
+  ok(planEs.data.total === 2599, '西语 es 共 2599 词（扩容达标）');
   const ssEs = await api('/api/study/session?token=' + tok);
   ok(ssEs.data.lang === 'es', '西语 session 语言标记为 es');
   ok(ssEs.data.questions.length === 30, '西语 daily 返回 30 题');
   ok(ssEs.data.questions.every((q) => q.options.length === 4 && typeof q.correctIndex === 'number'), '西语每题结构完整（4 选项 + correctIndex）');
 
-  console.log('== 15. 清理（本地） ==');
+  console.log('== 15. 熟词本 markKnown：移出 wrongbook + 进 known + 进度置满 ==');
+  await api('/api/study/reset', { token: tok, scope: 'all' });
+  await api('/api/known?token=' + tok, null, 'DELETE'); // 清理历史熟词，确保本段从 0 起算
+  await api('/api/study/plan', { token: tok, bookId: 'cet4-core', dailyNew: 10, vocabEstimate: 0 });
+  const dsK = await api('/api/study/session?token=' + tok);
+  const wk = dsK.data.questions[0];
+  // 先答错一次，让 wk 进生词本
+  await api('/api/study/answer', { token: tok, word: wk.word, correct: false });
+  const wbPre = (await api('/api/mywords?token=' + tok)).data.words;
+  ok(wbPre.some((w) => w.word === wk.word), '答错后 ' + wk.word + ' 在生词本');
+  const knBefore = (await api('/api/known?token=' + tok)).data.words.length;
+  const mk = await api('/api/study/markKnown', { token: tok, word: wk.word });
+  ok(mk.status === 200 && mk.data.knownCount === knBefore + 1, 'markKnown 成功，knownCount=' + (knBefore + 1));
+  const wbPost = (await api('/api/mywords?token=' + tok)).data.words;
+  ok(!wbPost.some((w) => w.word === wk.word), 'markKnown 后 ' + wk.word + ' 移出生词本');
+  const kn = (await api('/api/known?token=' + tok)).data.words;
+  ok(kn.length === knBefore + 1 && kn.some((w) => w.word === wk.word), '熟词本含 ' + wk.word);
+  const ovK = await api('/api/study/overview?token=' + tok);
+  ok(ovK.data.knownCount === knBefore + 1, 'overview.knownCount 同步=' + (knBefore + 1));
+  ok(ovK.data.mastered === 1, 'markKnown 后该词达到掌握（mastered=1）');
+  // 删除 known 中的词
+  await api('/api/known?token=' + tok + '&word=' + encodeURIComponent(wk.word), null, 'DELETE');
+  const kn2 = (await api('/api/known?token=' + tok)).data.words;
+  ok(kn2.length === knBefore, '删除熟词本词生效（回到 ' + knBefore + '）');
+  // 移回生词本
+  await api('/api/study/markKnown', { token: tok, word: wk.word });
+  await api('/api/known?token=' + tok + '&word=' + encodeURIComponent(wk.word) + '&toWrong=1', null, 'DELETE');
+  const wbBack = (await api('/api/mywords?token=' + tok)).data.words;
+  ok(wbBack.some((w) => w.word === wk.word), '熟词本「移回生词」后重新出现在生词本');
+  await api('/api/known?token=' + tok, null, 'DELETE'); // 清干净，避免影响后续段落
+
+  console.log('== 16. 自定义词书：创建 / 列表 / 设为计划 / 删除 ==');
+  const cbText = 'apple 苹果\nbanana 香蕉=水果\ncherry 樱桃';
+  const cbRes = await api('/api/custombook', { token: tok, name: '我的测试词书', lang: 'en', text: cbText });
+  ok(cbRes.status === 200 && cbRes.data.id && cbRes.data.count === 3, '自定义词书创建成功（解析 3 词）');
+  const cbId = cbRes.data.id;
+  const cbList = (await api('/api/custombooks?token=' + tok)).data.books;
+  ok(cbList.length === 1 && cbList[0].id === cbId && cbList[0].count === 3, '自定义词书列表正确');
+  // overview.books 应包含自定义书（带 custom 标记）
+  const ovCB = await api('/api/study/overview?token=' + tok);
+  ok(ovCB.data.books.some((b) => b.id === cbId && b.custom === true), 'overview 词书列表含自定义书');
+  // 设为计划
+  const cbPlan = await api('/api/study/plan', { token: tok, bookId: cbId, dailyNew: 20, vocabEstimate: 0 });
+  ok(cbPlan.status === 200 && cbPlan.data.plan.bookId === cbId, '自定义词书可设为学习计划');
+  const cbSess = await api('/api/study/session?token=' + tok);
+  ok(cbSess.data.questions.length > 0 && cbSess.data.questions.every((q) => ['apple', 'banana', 'cherry'].includes(q.word.toLowerCase())), '自定义词书 session 出题全部来自该书');
+  // 删除自定义书（并清计划引用）
+  await api('/api/custombook?token=' + tok + '&id=' + cbId, null, 'DELETE');
+  const cbList2 = (await api('/api/custombooks?token=' + tok)).data.books;
+  ok(cbList2.length === 0, '自定义词书删除成功');
+  const ovCB2 = await api('/api/study/overview?token=' + tok);
+  ok(ovCB2.data.plan === null, '删除被引用的自定义书后计划一并清空');
+
+  console.log('== 17. 整账户备份 / 恢复 ==');
+  await api('/api/study/reset', { token: tok, scope: 'all' });
+  await api('/api/study/plan', { token: tok, bookId: 'kaoyan', dailyNew: 20, vocabEstimate: 3000 });
+  const dsB = await api('/api/study/session?token=' + tok);
+  const wbWord = dsB.data.questions[0].word;
+  await api('/api/study/answer', { token: tok, word: wbWord, correct: false }); // 进生词本
+  await api('/api/study/markKnown', { token: tok, word: dsB.data.questions[1].word }); // 进熟词本
+  const bak = (await api('/api/backup?token=' + tok)).data.backup;
+  ok(bak && bak.words && bak.known && Array.isArray(bak.customBooks), '备份含生词本/熟词本/自定义词书字段');
+  ok(bak.words.some((w) => w.word === wbWord), '备份含生词本词');
+  ok(bak.known.length === 1, '备份含 1 个熟词');
+  // 清空后恢复
+  await api('/api/study/reset', { token: tok, scope: 'all' });
+  const ovEmpty = await api('/api/study/overview?token=' + tok);
+  ok(ovEmpty.data.plan === null, '重置后计划清空（生词本按设计保留）');
+  const rest = await api('/api/restore', { token: tok, backup: bak });
+  ok(rest.status === 200 && rest.data.ok, '恢复成功');
+  const ovRest = await api('/api/study/overview?token=' + tok);
+  ok(ovRest.data.plan && ovRest.data.plan.bookId === 'kaoyan', '恢复后计划还原（kaoyan）');
+  ok(ovRest.data.wrongCount >= 1, '恢复后生词本还原');
+  ok(ovRest.data.knownCount === 1, '恢复后熟词本还原');
+
+  console.log('== 18. 清理（本地） ==');
   const isLocal = BASE.startsWith('http://localhost') || BASE.startsWith('http://127.');
   if (!isLocal) { ok(true, '远程环境跳过本地清理'); }
   else try {

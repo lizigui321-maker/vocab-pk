@@ -142,6 +142,46 @@ for (const b of BOOKS) {
   if (!b.keepOrder) b._studyOrder.sort((a, c) => a.pos - c.pos || a.idx - c.idx);
 }
 
+/* 用户自定义词书：把存储用定义（{id,name,lang,words:[[w,m]]}）补全为带运行时字段的「书」，
+ * 复用与全局词书相同的出题/排序逻辑。带缓存避免每次请求重建。 */
+function buildRuntimeBook(def) {
+  if (def._words) return def;
+  const words = (def.words || []).map(([word, meaning]) => {
+    const { pos, clean } = splitMeaning(meaning);
+    return { word, meaning: clean, pos, raw: meaning };
+  });
+  const byPos = new Map();
+  for (const w of words) {
+    if (!byPos.has(w.pos)) byPos.set(w.pos, []);
+    byPos.get(w.pos).push(w);
+  }
+  const studyOrder = words.map((w, i) => {
+    const k = String(w.word).toLowerCase();
+    return { word: w.word, meaning: w.meaning, pos: freqPos(w.word), idx: i, posKey: k };
+  });
+  if (!def.keepOrder) studyOrder.sort((a, c) => a.pos - c.pos || a.idx - c.idx);
+  def._words = words;
+  def._byPos = byPos;
+  def._studyOrder = studyOrder;
+  if (!def.lang) def.lang = 'en';
+  return def;
+}
+/* 解析词书：先查全局，再查账号自定义词书（id 形如 cb-<时间戳>） */
+function resolveBook(acc, id) {
+  const g = BOOKS.find((b) => b.id === id);
+  if (g) return g;
+  if (id && id.indexOf('cb-') === 0 && acc) {
+    if (!acc.__rt) acc.__rt = new Map();
+    if (acc.__rt.has(id)) return acc.__rt.get(id);
+    const cb = (acc.customBooks || []).find((x) => x.id === id);
+    if (!cb) return null;
+    const rt = buildRuntimeBook(JSON.parse(JSON.stringify(cb)));
+    acc.__rt.set(id, rt);
+    return rt;
+  }
+  return null;
+}
+
 /* 学习状态（挂在账号上，账号隔离持久化）：
  * study = { plan:{bookId,dailyNew,vocabEstimate,autoSpeak}, progress:{词:{lv,n,c,wrong,due,firstAt,lastAt}}, log:{"YYYY-MM-DD":{new,review,wrong}} }
  */
@@ -187,9 +227,10 @@ function streakOf(st) {
 /* 学习总览（仪表盘数据） */
 function studyOverview(acc) {
   const st = getStudy(acc);
-  const out = { plan: null, books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })) };
+  const custom = (acc.customBooks || []).map((b) => ({ id: b.id, name: b.name, count: (b.words || []).length, lang: b.lang || 'en', custom: true }));
+  const out = { plan: null, books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })).concat(custom) };
   if (!st.plan) return out;
-  const book = BOOKS.find((b) => b.id === st.plan.bookId) || BOOKS[0];
+  const book = resolveBook(acc, st.plan.bookId) || BOOKS[0];
   const { list, skipped } = filterKnown(book, st.plan.vocabEstimate);
   const now = Date.now();
   const lg = todayLog(st);
@@ -221,9 +262,10 @@ function studyOverview(acc) {
   return {
     plan: st.plan, bookId: book.id, bookName: book.name,
     total: list.length, rawTotal: book.words.length, skipped, unitSize: UNIT_SIZE,
-    learned, mastered, due, wrongCount: (acc.words || []).length,
+    learned, mastered, due, wrongCount: (acc.words || []).length, knownCount: (acc.known || []).length,
     today: { new: lg.new, review: lg.review, wrong: lg.wrong, dailyNew: st.plan.dailyNew, newRemaining: Math.max(0, st.plan.dailyNew - lg.new) },
     streak: streakOf(st), units, log30,
+    books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })).concat(custom),
   };
 }
 /* 生成一道学习选择题（英文题干 + 4 个中文选项，干扰项优先同词性） */
@@ -258,7 +300,7 @@ function wordInfoOf(word, preferBook) {
 function studyAnswer(acc, word, correct) {
   const st = getStudy(acc);
   const k = wordKey(word);
-  const info = wordInfoOf(word, BOOKS.find((b) => b.id === (st.plan && st.plan.bookId)));
+  const info = wordInfoOf(word, resolveBook(acc, st.plan && st.plan.bookId));
   const now = Date.now();
   const lg = todayLog(st);
   let p = st.progress[k];
@@ -270,11 +312,19 @@ function studyAnswer(acc, word, correct) {
     p.c += 1;
     p.lv = Math.min((p.lv || 0) + 1, SRS_DAYS.length - 1);
     p.due = now + SRS_DAYS[p.lv] * 86400000;
-    // 达到掌握等级且已在生词本 → 毕业，自动移出生词本
-    if (p.lv >= MASTER_LV && Array.isArray(acc.words)) {
-      const before = acc.words.length;
-      acc.words = acc.words.filter((x) => wordKey(x.word) !== k);
-      removed = before !== acc.words.length;
+    // 达到掌握等级：从生词本毕业，并记入「熟词本」
+    if (p.lv >= MASTER_LV) {
+      if (Array.isArray(acc.words)) {
+        const before = acc.words.length;
+        acc.words = acc.words.filter((x) => wordKey(x.word) !== k);
+        removed = before !== acc.words.length;
+      }
+      const known = acc.known = acc.known || [];
+      const kidx = known.findIndex((x) => wordKey(x.word) === k);
+      const km = { word: String(word), meaning: (info && info.meaning) || (p.meaning || ''), book: (info && info.bookName) || '', lang: (info && info.lang) || 'en', at: now };
+      if (kidx >= 0) known.splice(kidx, 1);
+      known.unshift(km);
+      if (known.length > 5000) known.length = 5000;
     }
   } else {
     p.wrong = (p.wrong || 0) + 1;
@@ -602,7 +652,7 @@ const server = http.createServer(async (req, res) => {
       const salt = crypto.randomBytes(16).toString('hex');
       accounts[username.toLowerCase()] = {
         username, salt, hash: hashPassword(password, salt),
-        name: name || username, createdAt: Date.now(), words: [],
+        name: name || username, createdAt: Date.now(), words: [], known: [], customBooks: [],
       };
       saveAccounts();
       const token = newSession(username);
@@ -831,7 +881,7 @@ const server = http.createServer(async (req, res) => {
       const acc = authUser(b.token);
       if (!acc) return send(res, 401, { error: '请先登录' });
       const st = getStudy(acc);
-      const bookId = BOOKS.some((x) => x.id === b.bookId) ? b.bookId : (st.plan && st.plan.bookId) || BOOKS[0].id;
+      const bookId = resolveBook(acc, b.bookId) ? b.bookId : (st.plan && st.plan.bookId) || BOOKS[0].id;
       const dailyNew = [10, 20, 30, 50, 100].includes(Number(b.dailyNew)) ? Number(b.dailyNew) : (st.plan && st.plan.dailyNew) || 20;
       let vocabEstimate = Math.max(0, Math.min(30000, Math.round(Number(b.vocabEstimate) || 0)));
       st.plan = {
@@ -839,7 +889,7 @@ const server = http.createServer(async (req, res) => {
         autoSpeak: b.autoSpeak === undefined ? (st.plan ? st.plan.autoSpeak !== false : true) : b.autoSpeak !== false,
       };
       saveAccounts();
-      const book = BOOKS.find((x) => x.id === bookId);
+      const book = resolveBook(acc, bookId) || BOOKS[0];
       const { skipped } = filterKnown(book, vocabEstimate);
       return send(res, 200, { ok: true, plan: st.plan, skipped, total: book.words.length - skipped, bookName: book.name });
     }
@@ -848,7 +898,7 @@ const server = http.createServer(async (req, res) => {
       if (!acc) return send(res, 401, { error: '请先登录' });
       const st = getStudy(acc);
       if (!st.plan) return send(res, 400, { error: '请先设置学习计划' });
-      const book = BOOKS.find((x) => x.id === st.plan.bookId) || BOOKS[0];
+      const book = resolveBook(acc, st.plan.bookId) || BOOKS[0];
       const mode = u.searchParams.get('mode') === 'unit' ? 'unit' : (u.searchParams.get('mode') === 'review' ? 'review' : 'daily');
       const now = Date.now();
       let queue = [];
@@ -903,6 +953,127 @@ const server = http.createServer(async (req, res) => {
       if (b.scope === 'all') acc.study = { plan: null, progress: {}, log: {} };
       else if (b.scope === 'plan') { const st = getStudy(acc); st.plan = null; }
       else { const st = getStudy(acc); st.progress = {}; st.log = {}; } // scope=progress
+      saveAccounts();
+      return send(res, 200, { ok: true });
+    }
+    /* 标记为「已会」（熟词）：移出生词本 + 写入熟词本 + 进度置为掌握 */
+    if (req.method === 'POST' && p === '/api/study/markKnown') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const word = String(b.word || '').trim();
+      if (!word) return send(res, 400, { error: '缺少单词' });
+      // 允许前端传入 meaning/book/lang（如从生词本点「熟词」时保留原条目信息），否则回退到词书查询
+      const meaning = b.meaning ? String(b.meaning) : '';
+      const bookName = b.book ? String(b.book) : '';
+      const lang = b.lang === 'es' ? 'es' : (b.lang ? String(b.lang) : '');
+      const st = getStudy(acc);
+      const k = wordKey(word);
+      const now2 = Date.now();
+      const info = wordInfoOf(word, resolveBook(acc, st.plan && st.plan.bookId));
+      const pr = st.progress[k] = st.progress[k] || { lv: 0, n: 0, c: 0, wrong: 0, due: 0, firstAt: now2, lastAt: now2 };
+      pr.lv = MASTER_LV; pr.due = now2 + 365 * 86400000; // 1 年内不再作为新词/复习出现
+      if (Array.isArray(acc.words)) acc.words = acc.words.filter((x) => wordKey(x.word) !== k);
+      const known = acc.known = acc.known || [];
+      const km = { word, meaning: meaning || (info && info.meaning) || '', book: bookName || (info && info.bookName) || '', lang: lang || (info && info.lang) || 'en', at: now2 };
+      const kidx = known.findIndex((x) => wordKey(x.word) === k);
+      if (kidx >= 0) known.splice(kidx, 1);
+      known.unshift(km);
+      if (known.length > 5000) known.length = 5000;
+      saveAccounts();
+      return send(res, 200, { ok: true, knownCount: known.length });
+    }
+    /* 熟词本：查询 / 移除（toWrong=1 时移回生词本） */
+    if (req.method === 'GET' && p === '/api/known') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      return send(res, 200, { words: acc.known || [], username: acc.username });
+    }
+    if (req.method === 'DELETE' && p === '/api/known') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const known = acc.known = acc.known || [];
+      const word = String(u.searchParams.get('word') || '').trim();
+      if (word) {
+        const k = word.toLowerCase();
+        const idx = known.findIndex((x) => String(x.word).toLowerCase() === k);
+        const item = idx >= 0 ? known[idx] : null;
+        if (idx >= 0) known.splice(idx, 1);
+        if (item && u.searchParams.get('toWrong')) {
+          const wl = acc.words = acc.words || [];
+          if (!wl.some((x) => String(x.word).toLowerCase() === k)) wl.unshift({ word: item.word, meaning: item.meaning, book: item.book || '', lang: item.lang || 'en', at: Date.now() });
+          if (wl.length > 500) wl.length = 500;
+        }
+      } else {
+        acc.known = [];
+      }
+      saveAccounts();
+      return send(res, 200, { ok: true, count: (acc.known || []).length });
+    }
+    /* 自定义词书：新建 / 列表 / 删除 */
+    if (req.method === 'POST' && p === '/api/custombook') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const name = String(b.name || '').trim().slice(0, 30) || ('我的词书 ' + (((acc.customBooks || []).length) + 1));
+      const lang = b.lang === 'es' ? 'es' : 'en';
+      const text = String(b.text || '');
+      const words = [];
+      const seen = new Set();
+      text.split(/\r?\n/).forEach((line) => {
+        const s = line.trim(); if (!s) return;
+        const m = s.match(/^(\S+)[ \t=：:]+([\s\S]+)$/);
+        if (!m) return;
+        const w = m[1].trim(), mean = m[2].trim();
+        if (!w || !mean) return;
+        const k = w.toLowerCase(); if (seen.has(k)) return; seen.add(k);
+        words.push([w, mean]);
+      });
+      if (!words.length) return send(res, 400, { error: '没有解析到有效的「单词 释义」行，每行格式如：apple 苹果' });
+      if (words.length > 3000) words.length = 3000;
+      acc.customBooks = acc.customBooks || [];
+      if (acc.customBooks.length >= 30) return send(res, 400, { error: '自定义词书最多 30 本' });
+      const id = 'cb-' + Date.now();
+      acc.customBooks.push({ id, name, lang, words, createdAt: Date.now() });
+      saveAccounts();
+      return send(res, 200, { ok: true, id, name, count: words.length, lang });
+    }
+    if (req.method === 'GET' && p === '/api/custombooks') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      return send(res, 200, { books: (acc.customBooks || []).map((x) => ({ id: x.id, name: x.name, count: (x.words || []).length, lang: x.lang || 'en' })) });
+    }
+    if (req.method === 'DELETE' && p === '/api/custombook') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const id = u.searchParams.get('id') || '';
+      acc.customBooks = (acc.customBooks || []).filter((x) => x.id !== id);
+      const st = getStudy(acc);
+      if (st.plan && st.plan.bookId === id) st.plan = null;
+      saveAccounts();
+      return send(res, 200, { ok: true });
+    }
+    /* 整账户备份 / 恢复（生词本 + 熟词本 + 自定义词书 + 学习进度） */
+    if (req.method === 'GET' && p === '/api/backup') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      return send(res, 200, { backup: {
+        username: acc.username, words: acc.words || [], known: acc.known || [],
+        customBooks: acc.customBooks || [], study: acc.study || null, exportedAt: Date.now(),
+      } });
+    }
+    if (req.method === 'POST' && p === '/api/restore') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const data = b.backup;
+      if (!data || typeof data !== 'object') return send(res, 400, { error: '备份数据格式不正确' });
+      acc.words = Array.isArray(data.words) ? data.words : (acc.words || []);
+      acc.known = Array.isArray(data.known) ? data.known : (acc.known || []);
+      acc.customBooks = Array.isArray(data.customBooks) ? data.customBooks : (acc.customBooks || []);
+      acc.study = data.study && typeof data.study === 'object' ? data.study : (acc.study || null);
+      if (!acc.known) acc.known = [];
+      if (!acc.customBooks) acc.customBooks = [];
       saveAccounts();
       return send(res, 200, { ok: true });
     }

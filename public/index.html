@@ -7,16 +7,64 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="单词PK">
+<meta name="apple-mobile-web-app-title" content="背单词">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<title>单词PK · 在线词汇对战</title>
+<title>背单词 · 轻松积累你的词汇量</title>
 <style>
 :root{
   --ink:#1f2430; --sub:#6b7280; --line:#e5e7eb;
   --brand:#4f6ef7; --brand2:#7c5cff; --ok:#0e9f6e; --bad:#ef4444;
   --card:#ffffff; --shadow:0 10px 30px rgba(31,36,48,.10);
 }
+[data-theme="dark"]{
+  --ink:#e6e8ee; --sub:#9aa3b2; --line:#2a2f3a;
+  --brand:#7c8cff; --brand2:#a07bff; --ok:#34d399; --bad:#f87171;
+  --card:#1b1f27; --shadow:0 10px 30px rgba(0,0,0,.45);
+}
+[data-theme="dark"] body{ background:linear-gradient(165deg,#0f1320 0%,#161a26 50%,#1a1530 100%); }
+[data-theme="dark"] input[type=text],[data-theme="dark"] input[type=password]{ background:#232838; color:var(--ink); border-color:#2a2f3a; }
+[data-theme="dark"] .tabs{ background:#232838; }
+[data-theme="dark"] .btn.ghost{ background:#1b1f27; }
+[data-theme="dark"] .hint code{ background:#232838; }
+[data-theme="dark"] .hero{ box-shadow:0 14px 34px rgba(0,0,0,.5); }
+[data-theme="dark"] .feat{ border-color:rgba(255,255,255,.06); }
+/* 首页学习主入口 Hero */
+.hero{ border-radius:22px; padding:28px 24px; color:#fff; background:linear-gradient(135deg,var(--brand),var(--brand2)); box-shadow:0 14px 34px rgba(79,110,247,.32); margin-bottom:14px; position:relative; overflow:hidden; }
+.hero::after{ content:""; position:absolute; right:-40px; top:-40px; width:160px; height:160px; background:rgba(255,255,255,.12); border-radius:50%; }
+.hero h2{ font-size:25px; margin:0 0 6px; letter-spacing:.5px; position:relative; }
+.hero .sub{ opacity:.92; font-size:14px; margin-bottom:18px; position:relative; }
+.hero .hbtn{ display:inline-block; background:#fff; color:var(--brand); border:none; border-radius:14px; padding:14px 26px; font-size:16px; font-weight:800; cursor:pointer; box-shadow:0 6px 16px rgba(0,0,0,.18); position:relative; }
+.hero .hbtn:active{ transform:scale(.97); }
+.hero .hstats{ display:flex; gap:10px; margin-bottom:18px; position:relative; }
+.hero .hstat{ background:rgba(255,255,255,.16); border-radius:14px; padding:10px 8px; flex:1; text-align:center; }
+.hero .hstat b{ display:block; font-size:19px; }
+.hero .hstat span{ font-size:11px; opacity:.92; }
+.hero .ringwrap{ display:flex; align-items:center; gap:16px; margin-bottom:16px; position:relative; }
+/* 次级功能网格（PK / 生词本 / 熟词本 / 自测） */
+.feat-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
+.feat{ background:var(--card); border:1px solid rgba(31,36,48,.05); border-radius:16px; padding:16px; cursor:pointer; box-shadow:var(--shadow); transition:.15s; position:relative; }
+.feat:hover{ transform:translateY(-2px); }
+.feat .ic{ font-size:22px; }
+.feat .t{ font-weight:700; margin-top:6px; font-size:15px; }
+.feat .d{ font-size:12px; color:var(--sub); margin-top:2px; }
+.feat.pk{ background:linear-gradient(135deg,#fff,#f3f5ff); }
+[data-theme="dark"] .feat.pk{ background:linear-gradient(135deg,#1b1f27,#20243a); }
+.theme-toggle{ border:1px solid var(--line); background:var(--card); border-radius:9px; padding:5px 10px; font-size:13px; cursor:pointer; color:var(--ink); }
+.level-badge{ display:inline-flex; align-items:center; gap:6px; background:linear-gradient(135deg,var(--brand),var(--brand2)); color:#fff; border-radius:999px; padding:4px 12px; font-size:13px; font-weight:700; }
+/* 拼写（听写）模式 */
+.spell-input{ width:100%; padding:14px 16px; font-size:20px; text-align:center; border:2px solid var(--brand); border-radius:14px; outline:none; background:#fafbfc; letter-spacing:1px; }
+[data-theme="dark"] .spell-input{ background:#232838; }
+.spell-input.ok{ border-color:var(--ok); }
+.spell-input.bad{ border-color:var(--bad); }
+/* 自定义词书 / 备份 列表 */
+.cb-row{ display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--line); }
+.cb-row:last-child{ border-bottom:none; }
+.cb-row .nm{ flex:1; font-weight:600; }
+.cb-row .ct{ font-size:12px; color:var(--sub); }
+.cb-row .del{ border:none; background:rgba(239,68,68,.1); color:var(--bad); border-radius:8px; padding:5px 10px; cursor:pointer; font-size:12.5px; font-weight:600; }
+.textarea{ width:100%; min-height:120px; padding:12px; border:1.5px solid var(--line); border-radius:12px; font-size:14px; outline:none; background:#fafbfc; resize:vertical; font-family:inherit; }
+[data-theme="dark"] .textarea{ background:#232838; color:var(--ink); }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
 body{
@@ -158,6 +206,8 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .wrow .b{flex:none;font-size:11.5px;color:var(--sub);background:#eef1f6;border-radius:6px;padding:2px 7px}
 .wrow .del{flex:none;border:none;background:rgba(239,68,68,.1);color:var(--bad);border-radius:8px;padding:5px 11px;font-size:12.5px;cursor:pointer;font-weight:600}
 .wrow .del:active{transform:scale(.96)}
+.wrow .kw{flex:none;border:none;background:rgba(16,185,129,.12);color:var(--ok);border-radius:8px;padding:5px 11px;font-size:12.5px;cursor:pointer;font-weight:600}
+.wrow .kw:active{transform:scale(.96)}
 .wb-empty{text-align:center;color:var(--sub);font-size:14px;padding:26px 0 10px;line-height:1.8}
 /* ---------- 词汇量自测 ---------- */
 .vt-progress{font-size:13px;color:var(--sub);text-align:center;margin-bottom:4px}
@@ -278,12 +328,14 @@ function bookLangOf(id){
 }
 var LANG_NAMES = { en: '英语', es: '西班牙语' };
 /* 按语言分组的词书下拉选项（英语 / 西班牙语） */
-function bookOptionsHTML(selectedId){
+function bookOptionsHTML(selectedId, list){
+  var src = list && list.length ? list : BOOKS;
   var langs = [];
-  BOOKS.forEach(function(b){ var ln = b.lang || 'en'; if (langs.indexOf(ln) < 0) langs.push(ln); });
+  src.forEach(function(b){ var ln = b.lang || 'en'; if (langs.indexOf(ln) < 0) langs.push(ln); });
   return langs.map(function(ln){
-    var items = BOOKS.filter(function(b){ return (b.lang || 'en') === ln; }).map(function(b){
-      return '<option value="' + esc(b.id) + '"' + (b.id === selectedId ? ' selected' : '') + '>' + esc(b.name) + '（' + b.count + '词）</option>';
+    var items = src.filter(function(b){ return (b.lang || 'en') === ln; }).map(function(b){
+      var tag = b.custom ? ' ★' : '';
+      return '<option value="' + esc(b.id) + '"' + (b.id === selectedId ? ' selected' : '') + '>' + esc(b.name) + '（' + b.count + '词）' + tag + '</option>';
     }).join('');
     return langs.length > 1 ? '<optgroup label="' + (LANG_NAMES[ln] || ln) + '">' + items + '</optgroup>' : items;
   }).join('');
@@ -530,88 +582,19 @@ function isPublicVisit(){
   var h = location.hostname;
   return h !== 'localhost' && h !== '127.0.0.1' && !/^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(h);
 }
-function renderHome(){
-  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-  var bookOpts = bookOptionsHTML(null);
-  var ipHtml = INFO.ips && INFO.ips.length
-    ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
-    : '<code>http://本机IP:' + INFO.port + '</code>';
-  app.innerHTML =
-  '<div class="topbar" style="justify-content:space-between">' +
-    '<span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span>' +
-    '<span><button class="copybtn" id="editNameBtn">✏️ 昵称</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
-  '</div>' +
-  '<h1><span class="logo"><span class="ic">⚡</span>单词<span class="vs">PK</span></span></h1>' +
-  '<div class="tagline">浏览器/App 直接对战 · 局域网 / 公网均可 · 最高 5 人同场 PK</div>' +
-  '<div class="card">' +
-    '<div class="tabs">' +
-      '<button id="tabCreate" class="on">创建房间</button>' +
-      '<button id="tabJoin">加入房间</button>' +
-    '</div>' +
-    '<div id="panelCreate">' +
-      '<label class="fl">选择词汇本</label>' +
-      '<select id="bookSel" style="width:100%;padding:12px;border:1.5px solid #e5e7eb;border-radius:12px;font-size:15px;background:#fafbfc;">' + bookOpts + '</select>' +
-      '<label class="fl">对战模式</label>' +
-      '<div class="seg" id="modeSeg">' +
-        '<button data-v="word" class="on">📖 看词选义<small>显示英文单词</small></button>' +
-        '<button data-v="listen">🎧 听音辨义<small>只听读音不看词</small></button>' +
-      '</div>' +
-      '<label class="fl">题目数量</label>' +
-      '<div class="seg" id="countSeg">' +
-        '<button data-v="10">10 题</button><button data-v="20" class="on">20 题</button><button data-v="30">30 题</button>' +
-      '</div>' +
-      '<button class="btn" id="createBtn">创建房间 ⚡</button>' +
-    '</div>' +
-    '<div id="panelJoin" style="display:none">' +
-      '<label class="fl">房间号（房主创建后告知）</label>' +
-      '<input type="text" id="codeInput" maxlength="4" placeholder="例如：ABCD" style="text-transform:uppercase;letter-spacing:6px;font-size:20px;text-align:center">' +
-      '<button class="btn" id="joinBtn">加入对战 🤝</button>' +
-    '</div>' +
-    '<div class="hint"><b>怎么和朋友对战？</b><br>' +
-      (INFO.publicUrl
-        ? '1. 你创建房间后，<b>把这个公网网址发给朋友</b>（任何网络都能进，无需同一 WiFi）：<br><code>' + esc(INFO.publicUrl) + '</code><br>' +
-          '<button class="copybtn" id="copyLinkBtn">📋 复制公网网址</button><br>' +
-          '2. 朋友打开后输入同一房间号即可同场 PK（也支持单人练习）。'
-        : (isPublicVisit()
-          ? '1. 你创建房间后，<b>把这个网址直接发给朋友</b>（任何网络都能进，无需同一 WiFi）：<br><code>' + esc(location.origin) + '</code><br>' +
-            '<button class="copybtn" id="copyLinkBtn">📋 复制网址</button><br>' +
-            '2. 朋友打开后输入同一房间号即可同场 PK（也支持单人练习）。'
-          : '1. 你在本机启动服务后创建房间；<br>' +
-            '2. 朋友连<b>同一个 WiFi</b>，用手机/电脑浏览器打开 ' + ipHtml + '；<br>' +
-            '3. 输入同一房间号即可同场 PK（也支持单人练习）。')) +
-    '</div>' +
-  '</div>' +
-  '<div class="card feat">' +
-    '<button class="btn" id="studyBtn" style="grid-column:1/-1">📚 背单词 · 学习计划</button>' +
-    '<button class="btn ghost" id="wrongbookBtn">📒 我的生词本</button>' +
-    '<button class="btn ghost" id="vocabBtn">📊 词汇量自测</button>' +
-  '</div>' +
-  '<div class="footer-tip">计分规则：答对 +100 分，答题越快加成越多（最多 +20）· 单房间最高 5 人对战<br>答错的词会自动记入「我的生词本」，可随时复习</div>';
-
-  function switchTab(which){
-    $('#tabCreate').classList.toggle('on', which === 'create');
-    $('#tabJoin').classList.toggle('on', which === 'join');
-    $('#panelCreate').style.display = which === 'create' ? '' : 'none';
-    $('#panelJoin').style.display = which === 'join' ? '' : 'none';
-  }
-  $('#tabCreate').onclick = function(){ switchTab('create'); };
-  $('#tabJoin').onclick = function(){ switchTab('join'); };
-  $('#studyBtn').onclick = function(){ page = 'study'; renderStudy(); };
-  $('#wrongbookBtn').onclick = function(){ page = 'wrongbook'; renderWrongbook(); };
-  $('#vocabBtn').onclick = function(){ page = 'vocab'; renderVocabStart(); };
-
-  function segInit(id){
-    var seg = $(id);
-    seg.addEventListener('click', function(e){
-      var b = e.target.closest('button'); if (!b) return;
-      seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
-      b.classList.add('on');
-    });
-  }
-  segInit('#modeSeg'); segInit('#countSeg');
-  var clb = $('#copyLinkBtn');
-  if (clb) clb.onclick = function(){ copyText(INFO.publicUrl || location.origin, '网址已复制，发给朋友吧'); };
-  var enb = $('#editNameBtn');
+function applyTheme(){
+  var t = localStorage.getItem('vpk_theme') || 'light';
+  document.documentElement.setAttribute('data-theme', t);
+  var b = document.getElementById('thBtn');
+  if (b) b.textContent = t === 'dark' ? '☀️' : '🌙';
+}
+function toggleTheme(){
+  var cur = document.documentElement.getAttribute('data-theme');
+  localStorage.setItem('vpk_theme', cur === 'dark' ? 'light' : 'dark');
+  applyTheme();
+}
+function wireTopbar(){
+  var enb = document.getElementById('editNameBtn');
   if (enb) enb.onclick = function(){
     var nn = prompt('修改昵称（最多 12 字）：', account ? account.name : '');
     if (nn === null) return;
@@ -621,23 +604,108 @@ function renderHome(){
       .then(function(d){ account.name = d.name; toast('昵称已更新'); renderHome(); })
       .catch(function(e){ toast(e.message); });
   };
-  var lob = $('#logoutBtn');
+  var lob = document.getElementById('logoutBtn');
   if (lob) lob.onclick = function(){
     api('/api/logout', { token: token }, 'POST').catch(function(){});
     token = ''; account = null; localStorage.removeItem('vpk_token');
     page = 'auth'; renderAuth();
   };
-
+  var thb = document.getElementById('thBtn');
+  if (thb) thb.onclick = function(){ toggleTheme(); };
+}
+function renderHome(){
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  applyTheme();
+  var topbar =
+    '<div class="topbar" style="justify-content:space-between">' +
+      '<span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span>' +
+      '<span><button class="theme-toggle" id="thBtn">🌙</button> <button class="copybtn" id="editNameBtn">✏️ 昵称</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
+    '</div>';
+  app.innerHTML = topbar + '<div class="tagline"><span class="spin"></span></div>';
+  api('/api/study/overview?token=' + encodeURIComponent(token), null, 'GET')
+    .then(function(ov){
+      var hasPlan = !!ov.plan;
+      var t = ov.today || { new: 0, review: 0, wrong: 0, dailyNew: 20, newRemaining: 0 };
+      var hero;
+      if (hasPlan) {
+        hero =
+          '<div class="hstats">' +
+            '<div class="hstat"><b>' + t.new + '</b><span>今日新词 / ' + t.dailyNew + '</span></div>' +
+            '<div class="hstat"><b>' + (ov.learned || 0) + '</b><span>已学词</span></div>' +
+            '<div class="hstat"><b>' + (ov.mastered || 0) + '</b><span>已掌握</span></div>' +
+          '</div>' +
+          '<div style="font-weight:800;font-size:15px;margin-bottom:4px">📚 ' + esc(ov.bookName) + '</div>' +
+          '<button class="hbtn" id="hStudy">继续背单词 ▸</button> ' +
+          '<button class="hbtn" id="hReview" style="background:rgba(255,255,255,.2);color:#fff">🎯 复习生词本</button>';
+      } else {
+        hero =
+          '<h2>📚 背单词</h2>' +
+          '<div class="sub">按词频科学排序 · 间隔重复记忆 · 支持西语</div>' +
+          '<button class="hbtn" id="hStudy">开始制定计划 ▸</button>';
+      }
+      app.innerHTML = topbar +
+        '<div class="hero">' + hero + '</div>' +
+        '<div class="feat-grid">' +
+          '<div class="feat pk" id="fPk"><div class="ic">⚡</div><div class="t">单词PK 对战</div><div class="d">和小伙伴实时比拼</div></div>' +
+          '<div class="feat" id="fWrong"><div class="ic">📒</div><div class="t">生词本</div><div class="d">' + (ov.wrongCount || 0) + ' 个答错的词</div></div>' +
+          '<div class="feat" id="fKnown"><div class="ic">📗</div><div class="t">熟词本</div><div class="d">' + (ov.knownCount || 0) + ' 个已掌握</div></div>' +
+          '<div class="feat" id="fVocab"><div class="ic">📊</div><div class="t">词汇量自测</div><div class="d">测测你有多少词</div></div>' +
+        '</div>' +
+        '<div class="footer-tip">背单词为主，PK 对战为辅 · 学习错题与 PK 错题共享同一本生词本</div>';
+      $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
+      var hr = $('#hReview'); if (hr) hr.onclick = function(){ page = 'study'; stuStart('review'); };
+      $('#fPk').onclick = function(){ renderPk(); };
+      $('#fWrong').onclick = function(){ page = 'wrongbook'; renderWrongbook(); };
+      $('#fKnown').onclick = function(){ page = 'knownbook'; renderKnownbook(); };
+      $('#fVocab').onclick = function(){ page = 'vocab'; renderVocabStart(); };
+      wireTopbar();
+    })
+    .catch(function(e){ toast(e.message); renderAuth(); });
+}
+/* ---------- 单词PK 对战入口（从首页「⚡ 单词PK」进入） ---------- */
+function renderPk(){
+  var bookOpts = bookOptionsHTML(null);
+  var ipHtml = INFO.ips && INFO.ips.length
+    ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
+    : '<code>http://本机IP:' + INFO.port + '</code>';
+  app.innerHTML =
+    '<div class="topbar" style="justify-content:space-between"><span class="chip">⚡ 单词PK</span>' +
+      '<button class="copybtn" id="pkBack">← 首页</button></div>' +
+    '<h1>⚡ 单词PK 对战</h1>' +
+    '<div class="tagline">和小伙伴实时比拼词汇 · 也支持单人练习</div>' +
+    '<div class="card">' +
+      '<div class="tabs"><button id="tabCreate" class="on">创建房间</button><button id="tabJoin">加入房间</button></div>' +
+      '<div id="panelCreate">' +
+        '<label class="fl">选择词汇本</label>' +
+        '<select id="bookSel" style="width:100%;padding:12px;border:1.5px solid #e5e7eb;border-radius:12px;font-size:15px;background:#fafbfc;">' + bookOpts + '</select>' +
+        '<label class="fl">对战模式</label>' +
+        '<div class="seg" id="modeSeg"><button data-v="word" class="on">📖 看词选义<small>显示英文单词</small></button><button data-v="listen">🎧 听音辨义<small>只听读音不看词</small></button></div>' +
+        '<label class="fl">题目数量</label>' +
+        '<div class="seg" id="countSeg"><button data-v="10">10 题</button><button data-v="20" class="on">20 题</button><button data-v="30">30 题</button></div>' +
+        '<button class="btn" id="createBtn">创建房间 ⚡</button>' +
+      '</div>' +
+      '<div id="panelJoin" style="display:none"><label class="fl">房间号（房主创建后告知）</label>' +
+        '<input type="text" id="codeInput" maxlength="4" placeholder="例如：ABCD" style="text-transform:uppercase;letter-spacing:6px;font-size:20px;text-align:center">' +
+        '<button class="btn" id="joinBtn">加入对战 🤝</button></div>' +
+      '<div class="hint"><b>怎么和朋友对战？</b><br>' + (INFO.publicUrl
+        ? '1. 你创建房间后，<b>把这个公网网址发给朋友</b>：<br><code>' + esc(INFO.publicUrl) + '</code><br><button class="copybtn" id="copyLinkBtn">📋 复制公网网址</button><br>2. 朋友打开后输入同一房间号即可同场 PK。'
+        : (isPublicVisit()
+          ? '1. 你创建房间后，<b>把这个网址直接发给朋友</b>：<br><code>' + esc(location.origin) + '</code><br><button class="copybtn" id="copyLinkBtn">📋 复制网址</button><br>2. 朋友打开后输入同一房间号即可同场 PK。'
+          : '1. 你创建房间后；<br>2. 朋友连<b>同一个 WiFi</b>打开 ' + ipHtml + '；<br>3. 输入同一房间号即可同场 PK。')) + '</div>' +
+    '</div>';
+  function switchTab(which){ $('#tabCreate').classList.toggle('on', which === 'create'); $('#tabJoin').classList.toggle('on', which === 'join'); $('#panelCreate').style.display = which === 'create' ? '' : 'none'; $('#panelJoin').style.display = which === 'join' ? '' : 'none'; }
+  $('#tabCreate').onclick = function(){ switchTab('create'); };
+  $('#tabJoin').onclick = function(){ switchTab('join'); };
+  $('#pkBack').onclick = function(){ page = 'home'; renderHome(); };
+  function segInit(id){ var seg = $(id); seg.addEventListener('click', function(e){ var b = e.target.closest('button'); if (!b) return; seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); }); b.classList.add('on'); }); }
+  segInit('#modeSeg'); segInit('#countSeg');
+  var clb = $('#copyLinkBtn'); if (clb) clb.onclick = function(){ copyText(INFO.publicUrl || location.origin, '网址已复制，发给朋友吧'); };
   $('#createBtn').onclick = function(){
     var mode = $('#modeSeg button.on').getAttribute('data-v');
     var count = $('#countSeg button.on').getAttribute('data-v');
     var btn = this; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>创建中…';
     api('/api/create', { token: token, bookId: $('#bookSel').value, mode: mode, count: +count })
-      .then(function(d){
-        session = { roomId: d.roomId, playerId: d.playerId };
-        page = 'room';
-        connect(d.roomId, d.playerId);
-      })
+      .then(function(d){ session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); })
       .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '创建房间 ⚡'; });
   };
   $('#joinBtn').onclick = function(){
@@ -645,11 +713,7 @@ function renderHome(){
     if (code.length !== 4) { toast('请输入 4 位房间号'); return; }
     var btn = this; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>加入中…';
     api('/api/join', { token: token, roomId: code })
-      .then(function(d){
-        session = { roomId: d.roomId, playerId: d.playerId };
-        page = 'room';
-        connect(d.roomId, d.playerId);
-      })
+      .then(function(d){ session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); })
       .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '加入对战 🤝'; });
   };
 }
@@ -663,9 +727,10 @@ function renderWrongbook(){
         var d2 = new Date(w.at);
         var ts = d2.getFullYear() + '-' + ('0' + (d2.getMonth() + 1)).slice(-2) + '-' + ('0' + d2.getDate()).slice(-2) + ' ' + ('0' + d2.getHours()).slice(-2) + ':' + ('0' + d2.getMinutes()).slice(-2);
         return '<div class="wrow">' +
-          '<span class="w">' + esc(w.word) + '</span>' +
+          '<span class="w" data-w="' + esc(w.word) + '" data-l="' + esc(w.lang || 'en') + '">🔊 ' + esc(w.word) + '</span>' +
           '<span class="m">' + esc(w.meaning) + '</span>' +
           '<span class="b">' + esc(w.book || '') + '</span>' +
+          '<button class="kw" data-k="' + esc(w.word) + '" data-m="' + esc(w.meaning || '') + '" data-b="' + esc(w.book || '') + '" data-l="' + esc(w.lang || 'en') + '">熟词</button>' +
           '<button class="del" data-w="' + esc(w.word) + '">删除</button>' +
         '</div>';
       }).join('') : '<div class="wb-empty">还没有生词，去打一局对战吧！<br>答错的单词会自动收进这里 📖</div>';
@@ -692,6 +757,21 @@ function renderWrongbook(){
             .catch(function(e){ toast(e.message); });
         };
       });
+      app.querySelectorAll('.wrow .w').forEach(function(el){
+        el.onclick = function(){ speak(el.getAttribute('data-w'), el.getAttribute('data-l')); };
+      });
+      app.querySelectorAll('.wrow .kw').forEach(function(b){
+        b.onclick = function(){
+          var word = b.getAttribute('data-k');
+          if (!confirm('确定把「' + word + '」标记为已会并移入熟词本？')) return;
+          api('/api/study/markKnown', {
+            token: token, word: word,
+            meaning: b.getAttribute('data-m'), book: b.getAttribute('data-b'), lang: b.getAttribute('data-l'),
+          }, 'POST')
+            .then(function(){ toast('已移入熟词本 📗'); renderWrongbook(); })
+            .catch(function(e){ toast(e.message); });
+        };
+      });
       var rb = $('#wbReview');
       if (rb) rb.onclick = function(){ page = 'study'; stuStart('review'); };
       var eb = $('#wbExport');
@@ -704,6 +784,65 @@ function renderWrongbook(){
         if (!confirm('确定清空全部 ' + wrongList.length + ' 个生词？')) return;
         api('/api/mywords?token=' + encodeURIComponent(token), null, 'DELETE')
           .then(function(){ toast('已清空'); renderWrongbook(); })
+          .catch(function(e){ toast(e.message); });
+      };
+      $('#backHome').onclick = function(){ page = 'home'; renderHome(); };
+    })
+    .catch(function(e){ toast(e.message); page = 'home'; renderHome(); });
+}
+
+/* ---------- 熟词本 ---------- */
+function renderKnownbook(){
+  page = 'knownbook';
+  app.innerHTML = '<h1>📗 熟词本</h1><div class="tagline"><span class="spin"></span></div>';
+  api('/api/known?token=' + encodeURIComponent(token), null, 'GET')
+    .then(function(d){
+      var list = d.words || [];
+      var rows = list.length ? list.map(function(w){
+        return '<div class="wrow">' +
+          '<span class="w" data-w="' + esc(w.word) + '" data-l="' + esc(w.lang || 'en') + '">🔊 ' + esc(w.word) + '</span>' +
+          '<span class="m">' + esc(w.meaning || '') + '</span>' +
+          '<span class="b">' + esc(w.book || '') + '</span>' +
+          '<button class="kw" data-k="' + esc(w.word) + '">移回生词</button>' +
+          '<button class="del" data-k="' + esc(w.word) + '">删除</button>' +
+        '</div>';
+      }).join('') : '<div class="wb-empty">熟词本还是空的 📗<br>背单词时「达到掌握」或点「我认识这个」的词会自动进这里；也可在生词本里点「熟词」。</div>';
+      app.innerHTML =
+      '<h1>📗 熟词本</h1>' +
+      '<div class="tagline">已掌握 ' + list.length + ' 个词 · 这些是你会了的，不再作为生词出现</div>' +
+      '<div class="card">' +
+        '<div class="wb-head"><span class="wb-count">共 ' + list.length + ' 个熟词</span>' +
+          (list.length ? '<button class="copybtn" id="kbClear" style="color:var(--bad);border-color:rgba(239,68,68,.4)">🗑 清空</button>' : '') +
+        '</div>' +
+        rows +
+      '</div>' +
+      '<div class="card" style="padding:14px"><button class="btn ghost" id="backHome">返回首页</button></div>';
+      app.querySelectorAll('.wrow .w').forEach(function(el){
+        el.onclick = function(){ speak(el.getAttribute('data-w'), el.getAttribute('data-l')); };
+      });
+      app.querySelectorAll('.wrow .kw').forEach(function(b){
+        b.onclick = function(){
+          var word = b.getAttribute('data-k');
+          if (!confirm('把「' + word + '」移回生词本（重新学习）？')) return;
+          api('/api/known?token=' + encodeURIComponent(token) + '&word=' + encodeURIComponent(word) + '&toWrong=1', null, 'DELETE')
+            .then(function(){ toast('已移回生词本'); renderKnownbook(); })
+            .catch(function(e){ toast(e.message); });
+        };
+      });
+      app.querySelectorAll('.wrow .del').forEach(function(b){
+        b.onclick = function(){
+          var word = b.getAttribute('data-k');
+          if (!confirm('从熟词本删除「' + word + '」？')) return;
+          api('/api/known?token=' + encodeURIComponent(token) + '&word=' + encodeURIComponent(word), null, 'DELETE')
+            .then(function(){ toast('已删除'); renderKnownbook(); })
+            .catch(function(e){ toast(e.message); });
+        };
+      });
+      var kc = $('#kbClear');
+      if (kc) kc.onclick = function(){
+        if (!confirm('确定清空整个熟词本？')) return;
+        api('/api/known?token=' + encodeURIComponent(token), null, 'DELETE')
+          .then(function(){ toast('已清空'); renderKnownbook(); })
           .catch(function(e){ toast(e.message); });
       };
       $('#backHome').onclick = function(){ page = 'home'; renderHome(); };
@@ -918,10 +1057,12 @@ function renderStuDash(){
       '<b>' + (u.index + 1) + '</b><small>' + u.learned + '/' + u.total + '</small>' +
       '<div class="ub"><i style="width:' + pct + '%"></i></div></div>';
   }).join('');
+  var lvl = Math.floor(((ov.mastered || 0) + (ov.knownCount || 0)) / 50) + 1;
+  stu.inputMode = stu.inputMode || 'choice';
   app.innerHTML =
   '<div class="topbar" style="justify-content:space-between">' +
     '<span class="chip">📚 ' + esc(ov.bookName) + '</span>' +
-    '<button class="copybtn" id="stuBack">← 首页</button>' +
+    '<span><span class="level-badge">Lv.' + lvl + ' 🏅</span> <button class="copybtn" id="stuBack">← 首页</button></span>' +
   '</div>' +
   '<h1>今日学习</h1>' +
   '<div class="card">' +
@@ -933,6 +1074,11 @@ function renderStuDash(){
         (t.newRemaining > 0 ? '' : '<br>🎉 <b>今日新词任务已完成</b>') +
       '</div>' +
     '</div>' +
+    '<label class="fl">练习方式</label>' +
+    '<div class="seg" id="imSeg">' +
+      '<button data-v="choice" class="' + (stu.inputMode === 'choice' ? 'on' : '') + '">📝 选择题</button>' +
+      '<button data-v="spell" class="' + (stu.inputMode === 'spell' ? 'on' : '') + '">⌨️ 拼写题（看义写词）</button>' +
+    '</div>' +
     '<button class="btn" id="stuGo">开始学习 ' + (t.newRemaining > 0 || ov.due > 0 ? '📖' : '（复习模式）🔁') + '</button>' +
     '<button class="btn ghost" id="stuReview">🎯 复习生词本（' + ov.wrongCount + '）</button>' +
   '</div>' +
@@ -942,7 +1088,7 @@ function renderStuDash(){
       '<div class="stu-stat"><b class="fire">' + (ov.streak || 0) + '</b><span>连击天数 🔥</span></div>' +
       '<div class="stu-stat"><b>' + ov.learned + '</b><span>已学 / ' + ov.total + '</span></div>' +
       '<div class="stu-stat"><b class="okc">' + ov.mastered + '</b><span>已掌握</span></div>' +
-      '<div class="stu-stat"><b>' + ov.skipped + '</b><span>按词汇量跳过</span></div>' +
+      '<div class="stu-stat" id="goKnown" style="cursor:pointer"><b class="okc">' + (ov.knownCount || 0) + '</b><span>熟词本 ›</span></div>' +
     '</div>' +
     '<div class="stu-cal">' + cal + '</div>' + calCap +
   '</div>' +
@@ -952,11 +1098,31 @@ function renderStuDash(){
     '<div class="hint">' + (bookLangOf(ov.bookId) === 'es'
       ? '基础常用词在前面的单元、进阶词在后面；点任意单元可单独练习该单元。<br>每日 <b>' + ov.plan.dailyNew + '</b> 个新词'
       : '词频高的词在前面的单元、词频低的在后面；点任意单元可单独练习该单元。<br>已设置预估词汇量 <b>' + (ov.plan.vocabEstimate || 0) + '</b>' + (ov.plan.vocabEstimate ? '（频率排名 ≤ ' + ov.plan.vocabEstimate + ' 的简单词已跳过）' : '（未跳过简单词）') + ' · 每日 <b>' + ov.plan.dailyNew + '</b> 个新词') + '</div>' +
+  '</div>' +
+  '<div class="card">' +
+    '<div class="wb-head"><span class="wb-count">我的词书与数据</span></div>' +
+    '<button class="btn ghost" id="goCustom" style="width:100%;margin-bottom:8px">➕ 自定义词书（粘贴你自己的单词表）</button>' +
+    '<div style="display:flex;gap:8px">' +
+      '<button class="btn ghost" id="goBackup" style="flex:1">📤 导出备份</button>' +
+      '<button class="btn ghost" id="goRestore" style="flex:1">📥 导入备份</button>' +
+    '</div>' +
+    '<div class="hint">自定义词书让你用任意单词表（每行「单词 释义」）来学习；备份可保存生词本、熟词本与进度，换设备也不丢。</div>' +
   '</div>';
   $('#stuBack').onclick = function(){ page = 'home'; renderHome(); };
   $('#stuGo').onclick = function(){ stuStart('daily'); };
   $('#stuReview').onclick = function(){ stuStart('review'); };
   $('#stuPlanEdit').onclick = function(){ renderStudyPlan(false); };
+  $('#goKnown').onclick = function(){ page = 'knownbook'; renderKnownbook(); };
+  $('#goCustom').onclick = function(){ renderCustomBooks(); };
+  $('#goBackup').onclick = function(){ exportBackup(); };
+  $('#goRestore').onclick = function(){ importBackup(); };
+  var imSeg = $('#imSeg');
+  imSeg.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    imSeg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    stu.inputMode = b.getAttribute('data-v');
+  });
   app.querySelectorAll('.uchip').forEach(function(el){
     el.onclick = function(){
       var ui = +el.getAttribute('data-u');
@@ -970,7 +1136,7 @@ function renderStudyPlan(isNew){
   stu.view = 'plan';
   var ov = stu.overview || { books: BOOKS, plan: null };
   var plan = ov.plan || { bookId: (BOOKS[0] || {}).id, dailyNew: 20, vocabEstimate: 0, autoSpeak: true };
-  var bookOpts = bookOptionsHTML(plan.bookId);
+  var bookOpts = bookOptionsHTML(plan.bookId, ov.books);
   var bookLang = function(id){
     var list = (ov.books && ov.books.length) ? ov.books : BOOKS;
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].lang || 'en';
@@ -1072,7 +1238,7 @@ function renderStudyPlan(isNew){
 }
 /* ---------- 学习 session ---------- */
 function stuStart(mode, unit, label){
-  var url = '/api/study/session?token=' + encodeURIComponent(token) + '&mode=' + mode;
+  var url = '/api/study/session?token=' + encodeURIComponent(token) + '&mode=' + mode + '&inputMode=' + encodeURIComponent(stu.inputMode || 'choice');
   if (unit != null) url += '&unit=' + unit;
   app.innerHTML = '<h1>📚 背单词</h1><div class="tagline"><span class="spin"></span>出题中…</div>';
   api(url, null, 'GET').then(function(d){
@@ -1107,27 +1273,95 @@ function renderStuQuestion(){
     marks += '<i class="' + cls + '"></i>';
   }
   var modeTag = s.mode === 'review' ? '🎯 生词复习' : (s.mode === 'unit' ? '📘 ' + (s.label || '单元练习') : (q.isNew ? '🌱 新词' : '🔁 复习'));
+  var spell = stu.inputMode === 'spell';
+  var body;
+  if (spell) {
+    body =
+      '<div class="qmeta">第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 看释义，拼写出单词</div>' +
+      '<div class="word" id="sqWord" title="点击朗读">' + esc(q.meaning) + '</div>' +
+      '<input class="spell-input" id="sqInput" placeholder="输入 ' + (s.lang === 'es' ? '西语' : '英文') + ' 单词，回车确认" autocomplete="off" autocapitalize="off" spellcheck="false">' +
+      '<button class="btn" id="sqSubmit" style="width:100%;margin-top:12px">确认 ✔</button>' +
+      '<div id="sqFb"></div>' +
+      '<div class="hint" style="margin-top:12px">⌨️ 输入后按 Enter 确认 · 点上方释义可朗读该词 · 拼错会记入生词本</div>';
+  } else {
+    body =
+      '<div class="qmeta">第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 选出这个单词的中文意思</div>' +
+      '<div class="word" id="sqWord" title="点击朗读">' + esc(q.word) + '</div>' +
+      '<div class="stu-progress">' + marks + '</div>' +
+      '<div class="opts" id="sqOpts">' + (q.options || []).map(function(o, i){
+        return '<button class="opt" data-i="' + i + '"><span class="k">' + letters[i] + '</span><span>' + esc(o) + '</span></button>';
+      }).join('') + '</div>' +
+      '<div id="sqFb"></div>' +
+      '<div class="hint" style="margin-top:12px">⌨️ 键盘 1-4 也可作答 · 点单词可朗读 · 答错的词稍后会自动再出一次</div>';
+  }
   app.innerHTML =
   '<div class="topbar" style="justify-content:space-between">' +
     '<span class="chip mode">' + modeTag + '</span>' +
     '<span class="chip">✓ <b>' + s.right + '</b> · ✗ <b style="color:var(--bad)">' + s.wrong + '</b></span>' +
     '<button class="copybtn" id="sqQuit">退出</button>' +
   '</div>' +
-  '<div class="wq">' +
-    '<div class="qmeta">第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 选出这个单词的中文意思</div>' +
-    '<div class="word" id="sqWord" title="点击朗读">' + esc(q.word) + '</div>' +
-    '<div class="stu-progress">' + marks + '</div>' +
-    '<div class="opts" id="sqOpts">' + (q.options || []).map(function(o, i){
-      return '<button class="opt" data-i="' + i + '"><span class="k">' + letters[i] + '</span><span>' + esc(o) + '</span></button>';
-    }).join('') + '</div>' +
-    '<div id="sqFb"></div>' +
-    '<div class="hint" style="margin-top:12px">⌨️ 键盘 1-4 也可作答 · 点单词可朗读 · 答错的词稍后会自动再出一次</div>' +
-  '</div>';
+  '<div class="wq">' + body + '</div>' +
+  '<button class="btn ghost" id="sqKnown" style="width:100%;margin-top:14px">✅ 我认识这个（移入熟词本）</button>';
   $('#sqWord').onclick = function(){ speak(q.word, s.lang); };
   $('#sqQuit').onclick = stuQuit;
-  app.querySelectorAll('#sqOpts .opt').forEach(function(btn){
-    btn.onclick = function(){ stuPick(+btn.getAttribute('data-i')); };
-  });
+  $('#sqKnown').onclick = function(){ stuMarkKnown(q.word); };
+  if (spell) {
+    var inp = $('#sqInput');
+    if (inp) {
+      inp.focus();
+      inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); stuSpellSubmit(); } });
+    }
+    var sb = $('#sqSubmit'); if (sb) sb.onclick = stuSpellSubmit;
+  } else {
+    app.querySelectorAll('#sqOpts .opt').forEach(function(btn){
+      btn.onclick = function(){ stuPick(+btn.getAttribute('data-i')); };
+    });
+  }
+}
+/* 拼写题：看释义写词，提交后比对 */
+function stuSpellSubmit(){
+  var s = stu.sess; if (!s || s.lock) return;
+  var q = s.queue[s.idx]; if (!q) return;
+  var inp = $('#sqInput'); if (!inp) return;
+  var val = inp.value.trim().toLowerCase();
+  if (!val) { toast('请先输入单词'); return; }
+  var correct = val === String(q.word).trim().toLowerCase();
+  var fb = $('#sqFb');
+  if (fb) fb.innerHTML = correct
+    ? '<div class="sfb ok">🎉 拼写正确！</div>'
+    : '<div class="sfb bad">😅 拼写有误<small>正确拼写：' + esc(q.word) + '</small></div>';
+  inp.classList.add(correct ? 'ok' : 'bad');
+  s.lock = true;
+  s.marks[s.idx] = correct;
+  if (correct) s.right += 1; else s.wrong += 1;
+  if (!correct) {
+    if (!s.wrongWords.some(function(w){ return w.word === q.word; })) s.wrongWords.push({ word: q.word, meaning: q.meaning, my: val });
+  }
+  api('/api/study/answer', { token: token, word: q.word, correct: correct }, 'POST')
+    .then(function(d){ if (d.mastered && !d.removed) toast('「' + q.word + '」已达到掌握等级 🎓'); })
+    .catch(function(){});
+  setTimeout(function(){
+    if (!stu.sess || stu.sess !== s) return;
+    s.lock = false;
+    s.idx += 1;
+    if (s.idx >= s.queue.length) renderStuSummary();
+    else renderStuQuestion();
+  }, correct ? 900 : 1900);
+}
+/* 标记为已会：直接移入熟词本并跳过本题 */
+function stuMarkKnown(word){
+  var s = stu.sess; if (!s || s.lock) return;
+  s.lock = true;
+  s.marks[s.idx] = true;
+  api('/api/study/markKnown', { token: token, word: word }, 'POST')
+    .then(function(){
+      toast('已移入熟词本 📗');
+      s.lock = false;
+      s.idx += 1;
+      if (s.idx >= s.queue.length) renderStuSummary();
+      else renderStuQuestion();
+    })
+    .catch(function(e){ s.lock = false; toast(e.message); });
 }
 function stuPick(choice){
   var s = stu.sess;
@@ -1215,6 +1449,123 @@ function renderStuSummary(){
   });
   $('#ssAgain').onclick = function(){ stuStart(s.mode, s.unit, s.label); };
   $('#ssHome').onclick = function(){ renderStudy(); };
+}
+
+/* ---------- 自定义词书 ---------- */
+function renderCustomBooks(){
+  page = 'custom';
+  app.innerHTML = '<h1>➕ 自定义词书</h1><div class="tagline"><span class="spin"></span></div>';
+  api('/api/custombooks?token=' + encodeURIComponent(token), null, 'GET')
+    .then(function(d){
+      var books = d.books || [];
+      var listRows = books.length ? books.map(function(b){
+        return '<div class="cb-row">' +
+          '<div style="flex:1">' +
+            '<div class="nm">' + esc(b.name) + (b.lang === 'es' ? ' 🇪🇸' : '') + '</div>' +
+            '<div class="ct">' + b.count + ' 词</div>' +
+          '</div>' +
+          '<button class="copybtn" data-use="' + esc(b.id) + '">设为计划</button> ' +
+          '<button class="del" data-del="' + esc(b.id) + '">删除</button>' +
+        '</div>';
+      }).join('') : '<div class="wb-empty">还没有自定义词书。在下方粘贴你自己的单词表即可创建。</div>';
+      app.innerHTML =
+      '<h1>➕ 自定义词书</h1>' +
+      '<div class="tagline">用你自己的单词表（教材、考试、兴趣词）来背</div>' +
+      '<div class="card">' +
+        '<div class="wb-head"><span class="wb-count">我创建的词书（' + books.length + ' / 30）</span></div>' +
+        listRows +
+      '</div>' +
+      '<div class="card">' +
+        '<label class="fl">词书名称</label>' +
+        '<input type="text" id="cbName" placeholder="例如：考研核心词 / 我的错题本" style="width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-size:15px;background:#fafbfc">' +
+        '<label class="fl">语言</label>' +
+        '<div class="seg2" id="cbLang">' +
+          '<button data-v="en" class="on">🇬🇧 英语</button>' +
+          '<button data-v="es">🇪🇸 西班牙语</button>' +
+        '</div>' +
+        '<label class="fl">单词表（每行一个，格式：单词 释义 或 单词=释义）</label>' +
+        '<textarea class="textarea" id="cbText" placeholder="apple 苹果&#10;banana 香蕉&#10;computer 电脑"></textarea>' +
+        '<button class="btn" id="cbCreate">创建词书 📚</button>' +
+        '<div class="hint">例如：<code>apple 苹果</code> 或 <code>perro=狗</code>。最多 3000 词、最多 30 本。创建后可在「背单词 → 修改计划」里选它作为学习计划，或直接点「设为计划」。</div>' +
+      '</div>' +
+      '<div class="card" style="padding:14px"><button class="btn ghost" id="backHome">返回学习主页</button></div>';
+      var lang2 = 'en';
+      var lg = $('#cbLang');
+      if (lg) lg.addEventListener('click', function(e){
+        var b = e.target.closest('button'); if (!b) return;
+        lg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+        b.classList.add('on');
+        lang2 = b.getAttribute('data-v');
+      });
+      app.querySelectorAll('.cb-row .del').forEach(function(b){
+        b.onclick = function(){
+          var id = b.getAttribute('data-del');
+          if (!confirm('删除这本词书？以其为计划的安排也会被取消。')) return;
+          api('/api/custombook?token=' + encodeURIComponent(token) + '&id=' + encodeURIComponent(id), null, 'DELETE')
+            .then(function(){ toast('已删除'); renderCustomBooks(); })
+            .catch(function(e){ toast(e.message); });
+        };
+      });
+      app.querySelectorAll('.cb-row .copybtn').forEach(function(b){
+        b.onclick = function(){
+          var id = b.getAttribute('data-use');
+          var btn = b; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+          api('/api/study/plan', { token: token, bookId: id, dailyNew: 20, vocabEstimate: 0, autoSpeak: true }, 'POST')
+            .then(function(){ toast('已设为学习计划，开始背吧 🚀'); page = 'study'; renderStudy(); })
+            .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '设为计划'; });
+        };
+      });
+      $('#cbCreate').onclick = function(){
+        var btn = this; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>创建中…';
+        var name = ($('#cbName') ? $('#cbName').value : '').trim();
+        var text = $('#cbText') ? $('#cbText').value : '';
+        api('/api/custombook', { token: token, name: name, lang: lang2, text: text }, 'POST')
+          .then(function(dd){
+            toast('已创建「' + dd.name + '」（' + dd.count + ' 词）');
+            btn.disabled = false; btn.innerHTML = '创建词书 📚';
+            $('#cbText').value = '';
+            renderCustomBooks();
+          })
+          .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '创建词书 📚'; });
+      };
+      $('#backHome').onclick = function(){ page = 'study'; renderStudy(); };
+    })
+    .catch(function(e){ toast(e.message); page = 'study'; renderStudy(); });
+}
+/* ---------- 整账户备份 / 恢复 ---------- */
+function exportBackup(){
+  api('/api/backup?token=' + encodeURIComponent(token), null, 'GET')
+    .then(function(d){
+      var data = d.backup || {};
+      data.app = 'vocab-pk'; data.version = 1;
+      var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = 'vocab-pk-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
+      toast('备份已导出 📤');
+    })
+    .catch(function(e){ toast(e.message); });
+}
+function importBackup(){
+  if (!confirm('导入备份将覆盖当前的生词本、熟词本、自定义词书与学习进度。确定继续？')) return;
+  var inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'application/json,.json';
+  inp.onchange = function(){
+    var f = inp.files && inp.files[0]; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function(){
+      try {
+        var data = JSON.parse(rd.result);
+        api('/api/restore', { token: token, backup: data }, 'POST')
+          .then(function(){ toast('备份已恢复 📥'); page = 'study'; renderStudy(); })
+          .catch(function(e){ toast(e.message); });
+      } catch (err) { toast('文件不是有效的 JSON 备份'); }
+    };
+    rd.readAsText(f);
+  };
+  inp.click();
 }
 /* 学习页键盘快捷键：1-4 选择选项 */
 document.addEventListener('keydown', function(e){
@@ -1481,6 +1832,7 @@ function render(){
 
 /* ---------- 启动 ---------- */
 function boot(){
+  applyTheme();
   loadLocalBooks().then(function(books){
     if (books) BOOKS = books.map(function(b){ return { id: b.id, name: b.name, count: (b.words || []).length, lang: b.lang || 'en' }; });
     else return api('/api/books').then(function(d){ BOOKS = d.books; }).catch(function(){});

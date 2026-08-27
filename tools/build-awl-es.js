@@ -171,7 +171,15 @@ const MANUAL = {
   theory: 'n 理论；学说；原理', equate: 'v 等同；使相等', innovate: 'v 创新；革新',
 };
 
-/* ---------- 西班牙语核心词汇（手写，按教学频率排序） ---------- */
+/* ---------- 西班牙语核心词书：读取 es-words-raw.json（2599 词，频率排序） ---------- */
+const ES_RAW = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'data', 'es-words-raw.json'), 'utf8'));
+  } catch (e) {
+    console.error('读取 es-words-raw.json 失败：' + e.message);
+    return [];
+  }
+})();
 const ES_A1 = [
   ['hola','int 你好'],['adiós','int 再见'],['buenos días','int 早上好'],['buenas tardes','int 下午好'],
   ['buenas noches','int 晚上好'],['gracias','int 谢谢'],['por favor','int 请'],['de nada','int 不客气'],
@@ -321,18 +329,16 @@ function main() {
     return [w, m];
   });
 
-  const esA1 = ES_A1.filter((x) => x[1] !== 'x 占位').map(([w, m]) => [w, m.replace(/^x /, '')]);
-  const esA2 = ES_A2.filter((x) => x[1] !== 'x 占位').map(([w, m]) => [w, m.replace(/^x /, '')]);
+  const esAll = ES_RAW.map(([w, m]) => [String(w), String(m)]);
 
   /* 幂等写入 */
-  const filtered = books.filter((b) => !['awl', 'es-a1', 'es-a2'].includes(b.id));
+  const filtered = books.filter((b) => !['awl', 'es-a1', 'es-a2', 'es'].includes(b.id));
   filtered.push({ id: 'awl', name: '学术词汇 AWL（学术英语高频 570 词）', lang: 'en', keepOrder: true, words: awlWords });
-  filtered.push({ id: 'es-a1', name: '西班牙语入门 A1', lang: 'es', keepOrder: true, words: esA1 });
-  filtered.push({ id: 'es-a2', name: '西班牙语基础 A2', lang: 'es', keepOrder: true, words: esA2 });
+  filtered.push({ id: 'es', name: '西班牙语常用 2000 词', lang: 'es', keepOrder: true, words: esAll });
   fs.writeFileSync(BOOKS_FILE, JSON.stringify(filtered, null, 0), 'utf8');
 
   console.log('AWL: ' + awlWords.length + ' 词（sublist 顺序）');
-  console.log('西语 A1: ' + esA1.length + ' 词 / A2: ' + esA2.length + ' 词');
+  console.log('西语: ' + esAll.length + ' 词（频率排序）');
   console.log('books.json 现共 ' + filtered.length + ' 本词书');
   if (missing.length) {
     console.log('\n⚠️ AWL 缺释义 ' + missing.length + ' 词（已用占位，需补 MANUAL）：');

@@ -212,6 +212,8 @@ var vq = null;           // 词汇量测试状态 {questions, tiers, idx, answer
 var clockOffset = 0;     // 服务器时钟偏移
 var rafId = null;
 var lastSpokenQ = -1;
+var myLocalPick = null;   // 点击瞬间的本地高亮选项（服务器确认前兜底）
+var lastPickQ = -1;       // 本地高亮对应的题号
 
 /* ---------- 基础函数 ---------- */
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -317,7 +319,7 @@ function leaveRoom(){
   stopPolling();
   sseAlive = false;
   lastStateStr = '';
-  session = null; cur = null; lastSpokenQ = -1;
+  session = null; cur = null; lastSpokenQ = -1; myLocalPick = null; lastPickQ = -1;
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   page = 'home';
   renderHome();
@@ -778,10 +780,14 @@ function renderGame(v){
       '<span class="nm">' + esc(p.name) + (isMe ? '（我）' : '') + '</span>' +
       '<span class="sc">' + p.score + '</span></div>';
   }).join('');
-  var answered = v.phase === 'question' && q.myChoice !== null && q.myChoice !== undefined;
+  // 本地乐观高亮：换题时清空；服务器已确认的选择优先
+  if (lastPickQ !== v.qIndex) { myLocalPick = null; lastPickQ = v.qIndex; }
+  var serverChoice = (q.myChoice !== null && q.myChoice !== undefined) ? q.myChoice : null;
+  var myChoice = serverChoice !== null ? serverChoice : myLocalPick;
+  var answered = v.phase === 'question' && myChoice !== null;
   // 我已答且服务器已回传结果 → 立即显示对错
   var myRes = answered && q.myCorrect !== undefined && q.myCorrect !== null
-    ? { correct: q.myCorrect, gained: q.myGained, correctIndex: q.correctIndex, choice: q.myChoice }
+    ? { correct: q.myCorrect, gained: q.myGained, correctIndex: q.correctIndex, choice: myChoice }
     : null;
   var letters = ['A','B','C','D'];
 
@@ -805,12 +811,12 @@ function renderGame(v){
       var lr = v.lastResult;
       if (lr && i === lr.correctIndex) cls += ' correct';
       else if (lr && lr.results[v.you] && lr.results[v.you].choice === i) cls += ' wrong';
-      else if (lr && i === q.myChoice) cls += ' picked';
+      else if (lr && i === myChoice) cls += ' picked';
     } else if (myRes) {
       // 已答：立即标出我的对错（正确项绿 / 我的错项红）
       if (i === myRes.correctIndex) cls += ' correct';
       else if (i === myRes.choice) cls += ' wrong';
-    } else if (answered && i === q.myChoice) {
+    } else if (answered && i === myChoice) {
       cls += ' picked';
     }
     return '<button class="' + cls + '" data-i="' + i + '" ' + (dis ? 'disabled' : '') + '>' +
@@ -863,7 +869,11 @@ function renderGame(v){
     btn.onclick = function(){
       if (!session || answered) return;
       answered = true;
-      api('/api/answer', { roomId: session.roomId, playerId: session.playerId, qIndex: v.qIndex, choice: +btn.getAttribute('data-i') })
+      myLocalPick = +btn.getAttribute('data-i');  // 立即本地高亮，不等服务器
+      lastPickQ = v.qIndex;
+      btn.classList.add('picked');
+      btn.disabled = true;
+      api('/api/answer', { roomId: session.roomId, playerId: session.playerId, qIndex: v.qIndex, choice: myLocalPick })
         .catch(function(e){ toast(e.message); });
     };
   });

@@ -162,7 +162,10 @@ async function main() {
   ok(sw.status === 200, 'sw.js 可访问');
 
   console.log('== 12. 清理测试账号与排行数据 ==');
-  try {
+  const isLocal = BASE.startsWith('http://localhost') || BASE.startsWith('http://127.');
+  if (!isLocal) {
+    ok(true, '远程环境跳过本地文件清理（测试账号 reg_ 会保留在服务端）');
+  } else try {
     const af = path.join(STORE, 'accounts.json');
     const acc = JSON.parse(fs.readFileSync(af, 'utf8'));
     let removed = 0;

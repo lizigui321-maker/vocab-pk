@@ -299,6 +299,17 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .wl-row .x{flex:none;font-size:11px;color:var(--bad);background:rgba(239,68,68,.08);border-radius:6px;padding:2px 7px}
 .danger-zone{margin-top:16px;border-top:1px dashed var(--line);padding-top:14px}
 .danger-zone button{width:100%;margin-top:8px;padding:11px 0;border-radius:11px;border:1.5px solid rgba(239,68,68,.4);background:rgba(239,68,68,.05);color:var(--bad);font-size:13.5px;font-weight:600;cursor:pointer}
+/* 好友选择器浮层（body 级，避免 app 重渲染丢失） */
+.overlay{position:fixed;inset:0;background:rgba(17,24,39,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:18px}
+.modal{background:var(--card);border-radius:18px;box-shadow:0 20px 50px rgba(0,0,0,.25);width:100%;max-width:420px;max-height:78vh;overflow:auto}
+.modal .cb-list{padding:8px 16px 16px}
+/* PK 邀请接收横幅 */
+.invite-banner{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:60;display:none;align-items:center;gap:10px;background:var(--card);border:1.5px solid var(--brand);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.22);padding:12px 16px;max-width:94vw}
+.invite-banner .ib-text{font-size:14px;font-weight:600}
+.invite-banner .btn{padding:8px 14px;font-size:13.5px}
+.invite-banner .copybtn{padding:8px 12px;font-size:13px}
+[data-theme="dark"] .overlay{background:rgba(0,0,0,.6)}
+[data-theme="dark"] .invite-banner{box-shadow:0 14px 34px rgba(0,0,0,.5)}
 </style>
 </head>
 <body>
@@ -524,6 +535,7 @@ function onAuthed(d){
   account = { username: d.username, name: d.name };
   localStorage.setItem('vpk_token', token);
   page = 'home';
+  startInviteWatcher();
   renderHome();
 }
 function renderAuth(){
@@ -607,6 +619,7 @@ function wireTopbar(){
   var lob = document.getElementById('logoutBtn');
   if (lob) lob.onclick = function(){
     api('/api/logout', { token: token }, 'POST').catch(function(){});
+    stopInviteWatcher(); hideInviteBanner();
     token = ''; account = null; localStorage.removeItem('vpk_token');
     page = 'auth'; renderAuth();
   };
@@ -650,6 +663,8 @@ function renderHome(){
           '<div class="feat" id="fWrong"><div class="ic">📒</div><div class="t">生词本</div><div class="d">' + (ov.wrongCount || 0) + ' 个答错的词</div></div>' +
           '<div class="feat" id="fKnown"><div class="ic">📗</div><div class="t">熟词本</div><div class="d">' + (ov.knownCount || 0) + ' 个已掌握</div></div>' +
           '<div class="feat" id="fVocab"><div class="ic">📊</div><div class="t">词汇量自测</div><div class="d">测测你有多少词</div></div>' +
+          '<div class="feat" id="fGroups"><div class="ic">👥</div><div class="t">单词小组</div><div class="d">看看朋友的打卡</div></div>' +
+          '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">我的好友</div><div class="d">邀请一起背单词</div></div>' +
         '</div>' +
         '<div class="footer-tip">背单词为主，单词对战为辅 · 学习错题与对战错题共享同一本生词本</div>';
       $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
@@ -658,6 +673,8 @@ function renderHome(){
       $('#fWrong').onclick = function(){ page = 'wrongbook'; renderWrongbook(); };
       $('#fKnown').onclick = function(){ page = 'knownbook'; renderKnownbook(); };
       $('#fVocab').onclick = function(){ page = 'vocab'; renderVocabStart(); };
+      $('#fGroups').onclick = function(){ page = 'groups'; renderGroups(); };
+      $('#fFriends').onclick = function(){ page = 'friends'; renderFriends(); };
       wireTopbar();
     })
     .catch(function(e){ toast(e.message); renderAuth(); });
@@ -717,6 +734,190 @@ function renderPk(){
       .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '加入对战 🤝'; });
   };
 }
+
+/* ---------- 我的好友 ---------- */
+function renderFriends(){
+  app.innerHTML =
+    '<div class="topbar" style="justify-content:space-between"><span class="chip">🧑‍🤝‍🧑 我的好友</span><button class="copybtn" id="bh">← 首页</button></div>' +
+    '<h1>🧑‍🤝‍🧑 我的好友</h1>' +
+    '<div class="tagline">添加好友后，可在小组里互看打卡，也能一键邀请 TA 进房间 PK</div>' +
+    '<div class="card">' +
+      '<label class="fl">好友用户名（@ 后面的那串，3-16 位字母/数字/下划线）</label>' +
+      '<div style="display:flex;gap:8px"><input type="text" id="fUser" placeholder="例如：xiaoming" style="flex:1;padding:12px;border:1.5px solid #e5e7eb;border-radius:12px;font-size:15px">' +
+      '<button class="btn" id="addF" style="white-space:nowrap">添加</button></div>' +
+      '<div id="fList" class="cb-list"><div class="wb-empty">还没有好友，添加试试～</div></div>' +
+    '</div>' +
+    '<div class="card" style="padding:14px"><button class="btn ghost" id="bh2">返回首页</button></div>';
+  $('#bh').onclick = renderHome; $('#bh2').onclick = renderHome;
+  $('#addF').onclick = function(){
+    var u = $('#fUser').value.trim().replace(/^@/, '');
+    if (!u) { toast('请输入用户名'); return; }
+    api('/api/friend', { token: token, username: u }).then(function(){ toast('已添加 @' + u); renderFriends(); })
+      .catch(function(e){ toast(e.message); });
+  };
+  api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+    var fs = d.friends || [];
+    if (!fs.length) return;
+    $('#fList').innerHTML = fs.map(function(f){
+      return '<div class="cb-row"><span class="nm">' + esc(f.name) + ' <small>@' + esc(f.username) + '</small></span>' +
+        '<span class="ct">今日新 ' + f.today.new + ' · 复习 ' + f.today.review + (f.online ? ' · <span style="color:var(--ok)">在线</span>' : ' · 🔥' + f.streak + '天') + '</span>' +
+        '<button class="copybtn pk-inv" data-u="' + esc(f.username) + '">⚡ 邀请PK</button>' +
+        '<button class="del" data-u="' + esc(f.username) + '">移除</button></div>';
+    }).join('');
+    $('#fList').querySelectorAll('.del').forEach(function(b){ b.onclick = function(){ api('/api/friend?token=' + encodeURIComponent(token) + '&username=' + encodeURIComponent(b.getAttribute('data-u')), null, 'DELETE').then(function(){ toast('已移除'); renderFriends(); }).catch(function(e){ toast(e.message); }); }; });
+    $('#fList').querySelectorAll('.pk-inv').forEach(function(b){ b.onclick = function(){ inviteFriendToPk(b.getAttribute('data-u')); }; });
+  }).catch(function(e){ toast(e.message); });
+}
+
+/* ---------- 单词小组 ---------- */
+function renderGroups(){
+  app.innerHTML =
+    '<div class="topbar" style="justify-content:space-between"><span class="chip">👥 单词小组</span><button class="copybtn" id="bh">← 首页</button></div>' +
+    '<h1>👥 单词小组</h1>' +
+    '<div class="tagline">和好友组队打卡，互相督促背单词 💪</div>' +
+    '<div class="card">' +
+      '<button class="btn" id="newG">➕ 创建小组</button>' +
+      '<div style="height:10px"></div>' +
+      '<label class="fl">用邀请码加入（6 位）</label>' +
+      '<div style="display:flex;gap:8px"><input type="text" id="gCode" maxlength="6" placeholder="例如：AB12CD" style="flex:1;padding:12px;border:1.5px solid #e5e7eb;border-radius:12px;font-size:15px;text-transform:uppercase;letter-spacing:3px">' +
+      '<button class="btn" id="joinG" style="white-space:nowrap">加入</button></div>' +
+    '</div>' +
+    '<div id="gList" class="cb-list" style="margin-top:12px"></div>' +
+    '<div class="card" style="padding:14px"><button class="btn ghost" id="bh2">返回首页</button></div>';
+  $('#bh').onclick = renderHome; $('#bh2').onclick = renderHome;
+  $('#newG').onclick = function(){
+    var n = prompt('小组名称（最多 20 字）：', '');
+    if (!n) return;
+    api('/api/group', { token: token, name: n }).then(function(d){ renderGroupDetail(d.group.id); })
+      .catch(function(e){ toast(e.message); });
+  };
+  $('#joinG').onclick = function(){
+    var c = $('#gCode').value.trim().toUpperCase();
+    if (c.length !== 6) { toast('请输入 6 位邀请码'); return; }
+    api('/api/group/join', { token: token, code: c }).then(function(d){ renderGroupDetail(d.group.id); })
+      .catch(function(e){ toast(e.message); });
+  };
+  loadGroups();
+}
+function loadGroups(){
+  api('/api/groups?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+    var gs = d.groups || [];
+    if (!gs.length) { $('#gList').innerHTML = '<div class="wb-empty">还没有小组，创建一个或向朋友要邀请码吧～</div>'; return; }
+    $('#gList').innerHTML = gs.map(function(g){
+      return '<div class="cb-row"><span class="nm">' + esc(g.name) + ' <small>' + (g.isOwner ? '👑 我创建' : '成员') + ' · ' + g.members.length + ' 人</small></span>' +
+        '<button class="copybtn g-open" data-id="' + esc(g.id) + '">查看打卡</button>' +
+        (g.isOwner ? '<button class="copybtn g-code" data-code="' + esc(g.code) + '">复制邀请码</button>' : '') +
+        '<button class="del" data-id="' + esc(g.id) + '">' + (g.isOwner ? '解散' : '退出') + '</button></div>';
+    }).join('');
+    $('#gList').querySelectorAll('.g-open').forEach(function(b){ b.onclick = function(){ renderGroupDetail(b.getAttribute('data-id')); }; });
+    $('#gList').querySelectorAll('.g-code').forEach(function(b){ b.onclick = function(){ copyText(b.getAttribute('data-code'), '邀请码已复制：' + b.getAttribute('data-code')); }; });
+    $('#gList').querySelectorAll('.del').forEach(function(b){ b.onclick = function(){
+      if (!confirm((b.textContent === '解散' ? '确定解散该小组？' : '确定退出该小组？'))) return;
+      api('/api/group', { token: token, groupId: b.getAttribute('data-id') }, 'DELETE').then(function(){ toast('已操作'); renderGroups(); }).catch(function(e){ toast(e.message); });
+    }; });
+  }).catch(function(e){ toast(e.message); });
+}
+function renderGroupDetail(gid){
+  app.innerHTML =
+    '<div class="topbar" style="justify-content:space-between"><span class="chip">👥 小组打卡</span><button class="copybtn" id="gb">← 小组</button></div>' +
+    '<div class="tagline"><span class="spin"></span></div>';
+  api('/api/groups?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+    var g = (d.groups || []).find(function(x){ return x.id === gid; });
+    if (!g) { toast('小组不存在'); renderGroups(); return; }
+    var meU = account ? account.username : '';
+    var rows = g.members.map(function(m){
+      var badge = m.online ? '<span style="color:var(--ok)">● 在线</span>' : '🔥 ' + m.streak + ' 天';
+      var last = m.lastActive ? '最近 ' + m.lastActive.slice(5) : '未打卡';
+      return '<div class="cb-row"><span class="nm">' + esc(m.name) + (m.isOwner ? ' 👑' : '') + ' <small>@' + esc(m.username) + '</small></span>' +
+        '<span class="ct">今日 新' + m.today.new + '/复习' + m.today.review + ' · ' + badge + ' · ' + last + '</span>' +
+        (m.username === meU ? '' : '<button class="copybtn pk-inv" data-u="' + esc(m.username) + '">⚡ 邀请PK</button>') +
+        '</div>';
+    }).join('');
+    app.innerHTML =
+      '<div class="topbar" style="justify-content:space-between"><span class="chip">👥 ' + esc(g.name) + '</span><button class="copybtn" id="gb">← 小组</button></div>' +
+      '<h1>👥 ' + esc(g.name) + '</h1>' +
+      '<div class="tagline">共 ' + g.members.length + ' 人 · 邀请码 <b>' + esc(g.code) + '</b>' +
+        (g.isOwner ? ' · <button class="copybtn" id="cpCode">复制邀请码</button> <button class="copybtn" id="addMem">➕ 邀请好友入组</button>' : '') + '</div>' +
+      '<div class="card"><div class="wb-head"><span class="wb-count">成员打卡</span></div>' + (rows || '<div class="wb-empty">暂无成员</div>') + '</div>' +
+      '<div class="card" style="padding:14px"><button class="btn ghost" id="gb2">返回小组列表</button></div>';
+    $('#gb').onclick = renderGroups; $('#gb2').onclick = renderGroups;
+    if (g.isOwner) {
+      $('#cpCode').onclick = function(){ copyText(g.code, '邀请码已复制：' + g.code); };
+      $('#addMem').onclick = function(){
+        api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(fd){
+          var inGroup = g.members.map(function(m){ return m.username; });
+          var cands = (fd.friends || []).filter(function(f){ return inGroup.indexOf(f.username) < 0; });
+          showFriendPicker('邀请好友入组', cands, function(un){
+            api('/api/group/member', { token: token, groupId: g.id, username: un }).then(function(){ toast('已添加 @' + un); renderGroupDetail(g.id); })
+              .catch(function(e){ toast(e.message); });
+          });
+        }).catch(function(e){ toast(e.message); });
+      };
+    }
+    app.querySelectorAll('.pk-inv').forEach(function(b){ b.onclick = function(){ inviteFriendToPk(b.getAttribute('data-u')); }; });
+  }).catch(function(e){ toast(e.message); renderGroups(); });
+}
+
+/* ---------- 好友选择器（body 浮层，避免 app 重渲染丢失） ---------- */
+function showFriendPicker(title, candidates, onPick){
+  closeFriendPicker();
+  var ov = document.createElement('div'); ov.id = 'pickerOverlay'; ov.className = 'overlay';
+  ov.innerHTML = '<div class="modal"><div class="topbar" style="justify-content:space-between"><span class="chip">' + esc(title) + '</span><button class="copybtn" id="pkClose">关闭</button></div><div id="pkList" class="cb-list"></div></div>';
+  document.body.appendChild(ov);
+  var list = $('#pkList');
+  if (!candidates || !candidates.length) list.innerHTML = '<div class="wb-empty">没有可邀请的好友</div>';
+  else list.innerHTML = candidates.map(function(f){ return '<div class="cb-row"><span class="nm">' + esc(f.name) + ' <small>@' + esc(f.username) + '</small></span><button class="copybtn pk-pick" data-u="' + esc(f.username) + '">选择</button></div>'; }).join('');
+  $('#pkClose').onclick = closeFriendPicker;
+  ov.onclick = function(e){ if (e.target === ov) closeFriendPicker(); };
+  list.querySelectorAll('.pk-pick').forEach(function(b){ b.onclick = function(){ closeFriendPicker(); onPick(b.getAttribute('data-u')); }; });
+}
+function closeFriendPicker(){ var o = $('#pickerOverlay'); if (o) o.remove(); }
+function inviteFriendToPk(username){
+  function doInvite(roomId, playerId){
+    api('/api/pk/invite', { token: token, roomId: roomId, playerId: playerId, toUsername: username })
+      .then(function(){ toast('已邀请 @' + username + ' 进入房间'); })
+      .catch(function(e){ toast(e.message); });
+  }
+  if (session && session.roomId) { doInvite(session.roomId, session.playerId); return; }
+  api('/api/create', { token: token, bookId: '', mode: 'word', count: 20 })
+    .then(function(d){ session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); doInvite(d.roomId, d.playerId); })
+    .catch(function(e){ toast(e.message); });
+}
+
+/* ---------- PK 邀请接收（全局轮询横幅） ---------- */
+var inviteTimer = null, shownInviteId = null;
+function startInviteWatcher(){ if (inviteTimer) return; inviteTimer = setInterval(checkInvites, 8000); checkInvites(); }
+function stopInviteWatcher(){ if (inviteTimer) { clearInterval(inviteTimer); inviteTimer = null; } }
+function checkInvites(){
+  if (!token) return;
+  api('/api/invites?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+    var list = d.invites || [];
+    if (!list.length) { hideInviteBanner(); return; }
+    var inv = list[0];
+    if (inv.id === shownInviteId) return;
+    shownInviteId = inv.id;
+    showInviteBanner(inv);
+  }).catch(function(){});
+}
+function showInviteBanner(inv){
+  var b = $('#inviteBanner');
+  if (!b) { b = document.createElement('div'); b.id = 'inviteBanner'; b.className = 'invite-banner'; document.body.appendChild(b); }
+  b.innerHTML = '<div class="ib-text">⚡ <b>' + esc(inv.fromName) + '</b> 邀请你单词对战（' + esc(inv.bookName) + '）</div>' +
+    '<button class="btn" id="ibJoin">加入房间 ' + esc(inv.roomId) + '</button>' +
+    '<button class="copybtn" id="ibIgnore">忽略</button>';
+  b.style.display = 'flex';
+  $('#ibJoin').onclick = function(){
+    b.style.display = 'none';
+    api('/api/invite?token=' + encodeURIComponent(token) + '&id=' + encodeURIComponent(inv.id), null, 'DELETE').catch(function(){});
+    api('/api/join', { token: token, roomId: inv.roomId }).then(function(d){ session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); })
+      .catch(function(e){ toast(e.message); });
+  };
+  $('#ibIgnore').onclick = function(){
+    api('/api/invite?token=' + encodeURIComponent(token) + '&id=' + encodeURIComponent(inv.id), null, 'DELETE').catch(function(){});
+    b.style.display = 'none'; shownInviteId = null;
+  };
+}
+function hideInviteBanner(){ var b = $('#inviteBanner'); if (b) b.style.display = 'none'; }
 
 /* ---------- 生词本 ---------- */
 function renderWrongbook(){
@@ -1616,6 +1817,7 @@ function renderLobby(v){
       ? '<button class="btn" id="startBtn">开始对战 ' + (v.players.length > 1 ? '🚀' : '（单人练习）▶') + '</button>' +
         '<div class="hint">房主随时可以开始；人数 ≥1 即可（单人也能练），最多 5 人。本局开始后不能再加入，结束后可再加入。</div>'
       : '<div class="waiting">等待房主开始… 👀</div>') +
+    '<button class="btn ghost" id="inviteBtn">🤝 邀请好友</button>' +
     '<button class="btn ghost" id="backBtn">返回首页</button>' +
   '</div>';
   var sb = $('#startBtn');
@@ -1629,6 +1831,15 @@ function renderLobby(v){
     copyText('单词对战地址：' + location.origin + '（房间号 ' + v.roomId + '）', '网址和房间号已复制');
   };
   $('#backBtn').onclick = leaveRoom;
+  var ivb = $('#inviteBtn');
+  if (ivb) ivb.onclick = function(){
+    api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+      showFriendPicker('邀请好友进房间', d.friends || [], function(un){
+        api('/api/pk/invite', { token: token, roomId: session.roomId, playerId: session.playerId, toUsername: un })
+          .then(function(){ toast('已邀请 @' + un); }).catch(function(e){ toast(e.message); });
+      });
+    }).catch(function(e){ toast(e.message); });
+  };
 }
 
 /* ---------- 对战 ---------- */
@@ -1843,7 +2054,7 @@ function boot(){
     // 已有令牌：校验有效性并取回账号信息
     return api('/api/me?token=' + encodeURIComponent(token), null, 'GET')
       .then(function(d){
-        if (d && d.username) { account = { username: d.username, name: d.name }; renderHome(); }
+        if (d && d.username) { account = { username: d.username, name: d.name }; startInviteWatcher(); renderHome(); }
         else { token = ''; localStorage.removeItem('vpk_token'); renderAuth(); }
       })
       .catch(function(){ token = ''; localStorage.removeItem('vpk_token'); renderAuth(); });

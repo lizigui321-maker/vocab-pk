@@ -39,7 +39,7 @@ async function main() {
   ok(noauth3.status === 401, '无 token 访问 /api/study/answer 被拒（401）');
 
   console.log('== 2. 注册 + 空 overview（无计划） ==');
-  const ua = U('A');
+  const ua = U('A').toLowerCase();
   const reg = await api('/api/register', { username: ua, password: 'pw123456', name: '学习者' });
   ok(reg.status === 200 && reg.data.token, '账号 A 注册成功');
   const tok = reg.data.token;
@@ -255,6 +255,54 @@ async function main() {
   ok(ovRest.data.plan && ovRest.data.plan.bookId === 'kaoyan', '恢复后计划还原（kaoyan）');
   ok(ovRest.data.wrongCount >= 1, '恢复后生词本还原');
   ok(ovRest.data.knownCount === 1, '恢复后熟词本还原');
+
+  console.log('== 17b. 好友 / 单词小组 / PK 邀请 ==');
+  const ub = U('B').toLowerCase();
+  const regB = await api('/api/register', { username: ub, password: 'pw123456', name: '好友B' });
+  ok(regB.status === 200 && regB.data.token, '账号 B 注册成功');
+  const tokB = regB.data.token;
+  // 加好友
+  const addF = await api('/api/friend', { token: tok, username: ub });
+  ok(addF.status === 200 && addF.data.friends.some((f) => f.username === ub), 'A 添加 B 为好友生效');
+  const fList = (await api('/api/friends?token=' + tok)).data.friends;
+  ok(fList.length === 1 && fList[0].username === ub, '好友列表含 B');
+  // 创建小组 + 邀请码
+  const gRes = await api('/api/group', { token: tok, name: '冲刺小组' });
+  ok(gRes.status === 200 && gRes.data.group.id && /^[A-Z0-9]{6}$/.test(gRes.data.group.code), '小组创建成功（含 6 位邀请码）');
+  const gid = gRes.data.group.id;
+  const gCode = gRes.data.group.code;
+  // 组长加成员 B
+  const addM = await api('/api/group/member', { token: tok, groupId: gid, username: ub });
+  ok(addM.status === 200 && addM.data.group.members.length === 2, '组长将 B 加入小组（成员=2）');
+  // 我的小组列表含该组 + 成员打卡摘要
+  const myG = (await api('/api/groups?token=' + tok)).data.groups;
+  ok(myG.length === 1 && myG[0].members.length === 2, '我的小组列表正确（2 成员）');
+  const memB = myG[0].members.find((m) => m.username === ub);
+  ok(memB && typeof memB.today === 'object' && typeof memB.streak === 'number', '成员打卡摘要含 today/streak 字段');
+  // 邀请码加入（用 B 加入一个 B 自己创建的小组验证 join 路径）
+  const gRes2 = await api('/api/group', { token: tokB, name: 'B的小组' });
+  ok(gRes2.status === 200 && gRes2.data.group.id, 'B 自建小组成功（用于验证邀请码加入）');
+  const joinR = await api('/api/group/join', { token: tokB, code: gRes2.data.group.code });
+  ok(joinR.status === 200 && joinR.data.group.id === gRes2.data.group.id, '凭邀请码加入小组成功');
+  ok(joinR.data.group.members.some((m) => m.username === ub), '加入后成员列表含 B（对象数组）');
+  // 创建房间并邀请 B（PK 邀请）
+  const cre = await api('/api/create', { token: tok, bookId: 'kaoyan', mode: 'word', count: 10 });
+  ok(cre.status === 200 && cre.data.roomId, 'A 创建对战房间成功');
+  const inv = await api('/api/pk/invite', { token: tok, roomId: cre.data.roomId, playerId: cre.data.playerId, toUsername: ub });
+  ok(inv.status === 200 && inv.data.ok, 'A 向 B 发送 PK 邀请成功');
+  const invB = (await api('/api/invites?token=' + tokB)).data.invites;
+  ok(invB.length === 1 && invB[0].roomId === cre.data.roomId && invB[0].fromUsername === ua, 'B 收到 PK 邀请（含房间号与发起人）');
+  // B 加入被邀请的房间
+  const joinPk = await api('/api/join', { token: tokB, roomId: cre.data.roomId });
+  ok(joinPk.status === 200 && joinPk.data.roomId === cre.data.roomId, 'B 凭邀请加入 A 的房间成功');
+  // 忽略邀请后列表清空
+  await api('/api/invite?token=' + tokB + '&id=' + invB[0].id, null, 'DELETE');
+  const invB2 = (await api('/api/invites?token=' + tokB)).data.invites;
+  ok(invB2.length === 0, '忽略（删除）邀请后列表清空');
+  // 退出小组
+  await api('/api/group', { token: tokB, groupId: gid }, 'DELETE');
+  const myG2 = (await api('/api/groups?token=' + tokB)).data.groups;
+  ok(!myG2.some((g) => g.id === gid), 'B 退出小组后不再出现在该组');
 
   console.log('== 18. 清理（本地） ==');
   const isLocal = BASE.startsWith('http://localhost') || BASE.startsWith('http://127.');

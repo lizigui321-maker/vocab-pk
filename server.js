@@ -49,13 +49,16 @@ if (!fs.existsSync(STORE)) fs.mkdirSync(STORE, { recursive: true });
 const RANK_FILE = path.join(STORE, 'vocab-rank.json');
 const ACCOUNTS_FILE = path.join(STORE, 'accounts.json');
 const SESSIONS_FILE = path.join(STORE, 'sessions.json');
+const GROUPS_FILE = path.join(STORE, 'groups.json');
 function loadJSON(f, dflt) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return dflt; } }
 function saveJSON(f, data) { try { fs.writeFileSync(f, JSON.stringify(data), 'utf8'); } catch (e) {} }
 let vocabRank = loadJSON(RANK_FILE, []);     // [{name, best, latest, count, at}] 词汇量排行
 let accounts = loadJSON(ACCOUNTS_FILE, {});  // username(小写) -> {username, salt, hash, name, createdAt, words:[{word,meaning,book,at}]}
 let sessions = loadJSON(SESSIONS_FILE, {});  // token -> {username, at}
+let groups = loadJSON(GROUPS_FILE, {});      // groupId -> {id, name, owner, members:[username], code, createdAt}
 function saveAccounts(){ saveJSON(ACCOUNTS_FILE, accounts); }
 function saveSessions(){ saveJSON(SESSIONS_FILE, sessions); }
+function saveGroups(){ saveJSON(GROUPS_FILE, groups); }
 function hashPassword(pw, salt){ return crypto.scryptSync(String(pw), salt, 32).toString('hex'); }
 function newSession(username){
   const token = crypto.randomBytes(24).toString('hex');
@@ -102,6 +105,7 @@ const TIER_SAMPLE = 6; // 每层抽 6 题，共 42 题
 const ALL_TIER_WORDS = tierWords.flat(); // 词汇量测试干扰释义候选池
 
 const rooms = new Map();
+const invites = new Map(); // targetUsername(lower) -> [{id, fromUsername, fromName, roomId, bookName, mode, count, at, expiresAt}]
 
 /* ================= 背单词 · 学习模块（计划 / 词频排序 / 单元 / SRS 复习） ================= */
 const UNIT_SIZE = 50;                                  // 每单元词数
@@ -685,6 +689,189 @@ const server = http.createServer(async (req, res) => {
       if (b.token && sessions[b.token]) { delete sessions[b.token]; saveSessions(); }
       return send(res, 200, { ok: true });
     }
+
+    /* ================= 好友 / 单词小组 / PK 邀请 ================= */
+    // 给任意用户名算一份「对外可见」的学习概览（今日打卡、连续天数、最近活跃、是否在线）
+    function publicStudy(username) {
+      const acc = accounts[String(username).toLowerCase()];
+      if (!acc) return null;
+      const st = getStudy(acc);
+      const lg = st.log[dayKey(Date.now())] || { new: 0, review: 0, wrong: 0 };
+      let lastActive = null;
+      for (const d of Object.keys(st.log)) {
+        if ((st.log[d].new + st.log[d].review) > 0 && (!lastActive || d > lastActive)) lastActive = d;
+      }
+      return {
+        today: { new: lg.new, review: lg.review, wrong: lg.wrong },
+        streak: streakOf(st),
+        lastActive,
+        online: isUserOnlineInRooms(username),
+      };
+    }
+    function isUserOnlineInRooms(username) {
+      const u = String(username).toLowerCase();
+      for (const room of rooms.values()) {
+        for (const p of room.players.values()) {
+          if ((p.username || '').toLowerCase() === u && isOnline(p)) return true;
+        }
+      }
+      return false;
+    }
+    function friendList(acc) {
+      const friends = (acc.friends || []).slice();
+      return friends.map(function (un) {
+        const a = accounts[un]; const s = publicStudy(un);
+        return {
+          username: un, name: a ? a.name : un,
+          today: s ? s.today : { new: 0, review: 0, wrong: 0 },
+          streak: s ? s.streak : 0, lastActive: s ? s.lastActive : null, online: s ? s.online : false,
+        };
+      });
+    }
+    function groupView(gid, me) {
+      const g = groups[gid]; if (!g) return null;
+      const members = g.members.map(function (un) {
+        const a = accounts[un]; const s = publicStudy(un);
+        return {
+          username: un, name: a ? a.name : un, isOwner: un === g.owner,
+          today: s ? s.today : { new: 0, review: 0, wrong: 0 },
+          streak: s ? s.streak : 0, lastActive: s ? s.lastActive : null, online: s ? s.online : false,
+        };
+      });
+      return { id: g.id, name: g.name, owner: g.owner, code: g.code, isOwner: g.owner === String(me).toLowerCase(), members };
+    }
+    function genGroupCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code;
+      do {
+        code = '';
+        for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+      } while (Object.values(groups).some((g) => g.code === code));
+      return code;
+    }
+
+    if (req.method === 'POST' && p === '/api/friend') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const target = String(b.username || '').trim().toLowerCase();
+      if (!RE_USER.test(target)) return send(res, 400, { error: '用户名需 3-16 位字母/数字/下划线' });
+      if (target === acc.username.toLowerCase()) return send(res, 400, { error: '不能添加自己为好友' });
+      if (!accounts[target]) return send(res, 404, { error: '用户不存在' });
+      acc.friends = acc.friends || [];
+      if (!acc.friends.includes(target)) { acc.friends.push(target); saveAccounts(); }
+      return send(res, 200, { ok: true, friends: friendList(acc) });
+    }
+    if (req.method === 'DELETE' && p === '/api/friend') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const target = String(u.searchParams.get('username') || '').trim().toLowerCase();
+      acc.friends = (acc.friends || []).filter((x) => x !== target);
+      saveAccounts();
+      return send(res, 200, { ok: true, friends: friendList(acc) });
+    }
+    if (req.method === 'GET' && p === '/api/friends') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      return send(res, 200, { friends: friendList(acc) });
+    }
+    if (req.method === 'POST' && p === '/api/group') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const name = String(b.name || '').trim().slice(0, 20);
+      if (!name) return send(res, 400, { error: '小组名不能为空' });
+      const id = 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      groups[id] = { id, name, owner: acc.username.toLowerCase(), members: [acc.username.toLowerCase()], code: genGroupCode(), createdAt: Date.now() };
+      saveGroups();
+      return send(res, 200, { ok: true, group: groupView(id, acc.username) });
+    }
+    if (req.method === 'POST' && p === '/api/group/join') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const code = String(b.code || '').trim().toUpperCase();
+      let gid = null;
+      for (const g of Object.values(groups)) if (g.code === code) { gid = g.id; break; }
+      if (!gid) return send(res, 404, { error: '邀请码无效' });
+      const g = groups[gid];
+      if (g.members.length >= 50) return send(res, 400, { error: '小组人数已满（最多 50 人）' });
+      if (!g.members.includes(acc.username.toLowerCase())) g.members.push(acc.username.toLowerCase());
+      saveGroups();
+      return send(res, 200, { ok: true, group: groupView(gid, acc.username) });
+    }
+    if (req.method === 'DELETE' && p === '/api/group') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const g = groups[String(b.groupId || '')];
+      if (!g) return send(res, 404, { error: '小组不存在' });
+      const me = acc.username.toLowerCase();
+      if (g.owner === me) {
+        const others = g.members.filter((m) => m !== me);
+        if (others.length) { g.owner = others[0]; g.members = others; saveGroups(); return send(res, 200, { ok: true, transferred: true }); }
+        delete groups[g.id]; saveGroups(); return send(res, 200, { ok: true, deleted: true });
+      }
+      g.members = g.members.filter((m) => m !== me); saveGroups();
+      return send(res, 200, { ok: true, left: true });
+    }
+    if (req.method === 'POST' && p === '/api/group/member') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const g = groups[String(b.groupId || '')];
+      if (!g) return send(res, 404, { error: '小组不存在' });
+      if (g.owner !== acc.username.toLowerCase()) return send(res, 403, { error: '只有组长能添加成员' });
+      const target = String(b.username || '').trim().toLowerCase();
+      if (!accounts[target]) return send(res, 404, { error: '用户不存在' });
+      if (g.members.includes(target)) return send(res, 200, { ok: true, group: groupView(g.id, acc.username) });
+      if (g.members.length >= 50) return send(res, 400, { error: '小组人数已满' });
+      g.members.push(target); saveGroups();
+      return send(res, 200, { ok: true, group: groupView(g.id, acc.username) });
+    }
+    if (req.method === 'GET' && p === '/api/groups') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const me = acc.username.toLowerCase();
+      const list = Object.values(groups).filter((g) => g.members.includes(me)).map((g) => groupView(g.id, me));
+      return send(res, 200, { groups: list });
+    }
+    if (req.method === 'POST' && p === '/api/pk/invite') {
+      const b = await readBody(req);
+      const acc = authUser(b.token);
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const room = rooms.get(String(b.roomId || '').trim().toUpperCase());
+      if (!room) return send(res, 404, { error: '房间不存在' });
+      const player = room.players.get(String(b.playerId || ''));
+      if (!player || (player.username || '').toLowerCase() !== acc.username.toLowerCase()) return send(res, 403, { error: '你不在该房间' });
+      const to = String(b.toUsername || '').trim().toLowerCase();
+      if (!accounts[to]) return send(res, 404, { error: '好友不存在' });
+      if (to === acc.username.toLowerCase()) return send(res, 400, { error: '不能邀请自己' });
+      const bookName = (BOOKS.find((x) => x.id === room.settings.bookId) || {}).name || '';
+      const inv = {
+        id: crypto.randomBytes(8).toString('hex'), fromUsername: acc.username.toLowerCase(), fromName: acc.name || acc.username,
+        roomId: room.id, bookName, mode: room.settings.mode, count: room.settings.count, at: Date.now(), expiresAt: Date.now() + 5 * 60 * 1000,
+      };
+      invites.set(to, (invites.get(to) || []).filter((x) => x.expiresAt > Date.now()).concat(inv));
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === 'GET' && p === '/api/invites') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const me = acc.username.toLowerCase();
+      const list = (invites.get(me) || []).filter((x) => x.expiresAt > Date.now());
+      invites.set(me, list);
+      return send(res, 200, { invites: list });
+    }
+    if (req.method === 'DELETE' && p === '/api/invite') {
+      const acc = authUser(u.searchParams.get('token') || '');
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const id = u.searchParams.get('id') || '';
+      const me = acc.username.toLowerCase();
+      invites.set(me, (invites.get(me) || []).filter((x) => x.id !== id));
+      return send(res, 200, { ok: true });
+    }
+
     if (req.method === 'POST' && p === '/api/create') {
       const b = await readBody(req);
       const account = authUser(b.token);

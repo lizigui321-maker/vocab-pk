@@ -39,7 +39,7 @@ async function main() {
   const pw = 'pw123456';
   const r1 = await api('/api/register', { username: ua, password: pw, name: '甲甲' });
   ok(r1.status === 200 && r1.data.token, '用户A注册成功并拿到 token');
-  const tokA = r1.data.token;
+  let tokA = r1.data.token;
   const r1b = await api('/api/register', { username: ua, password: pw });
   ok(r1b.status === 409, '重复注册被拒（409）');
   const r2 = await api('/api/login', { username: ua, password: pw });
@@ -75,6 +75,8 @@ async function main() {
   ok(loginOld.status === 401, '旧密码登录失败');
   const loginNew = await api('/api/login', { username: ua, password: 'newpw123' });
   ok(loginNew.status === 200 && loginNew.data.token, '新密码登录成功');
+  // 改密码后旧会话失效（L6 安全修复），需用新令牌继续后续步骤
+  tokA = loginNew.data.token;
 
   console.log('== 5. 带 token 对战：建房/加入，绿点应为在线 ==');
   const c = await api('/api/create', { token: tokA, bookId: 'cet4', mode: 'word', count: 10 });

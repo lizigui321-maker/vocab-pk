@@ -8,12 +8,19 @@ services:
     plan: free
     region: oregon          # 可改成 singapore 等离用户更近的区
     branch: master            # 按你的仓库分支调整
-    buildCommand: "true"    # 零依赖，无需构建
+    buildCommand: "node tools/build-books.js"    # 零依赖，但每次部署重建 books.bundle.js，避免 books.json 改了却忘了重新生成（M4）
     startCommand: "node server.js"
     envVars:
       - key: NODE_ENV
         value: production
+      # 云端持久化（解决每次部署/重启清空本地磁盘导致账号与生词本丢失）。
+      # sync:false 表示：变量在 Render 控制台手动设置后，Blueprint 重建不会把它清空（M5）。
+      # 务必在 Render 控制台为服务手动填入这两个值，否则服务会静默退回本地文件模式。
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
       # PORT 由 Render 自动注入，server.js 已读取 process.env.PORT
     # 注意：免费版文件系统是临时的，重新部署会清空本地账号/生词本数据。
-    # 如需持久化，请在 Render 控制台为该服务挂载一个 Persistent Disk，
-    # 并把 Mount Path 设为 /opt/render/project/src/store （与本项目 store 目录对应）。
+    # 配置上面的 UPSTASH 云端持久化即可跨部署保留数据；或在 Render 控制台为该服务挂载
+    # 一个 Persistent Disk，并把 Mount Path 设为 /opt/render/project/src/store（与本项目 store 目录对应）。

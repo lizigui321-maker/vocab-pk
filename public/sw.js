@@ -21,17 +21,20 @@ self.addEventListener('fetch', function (e) {
     }));
     return;
   }
-  // 静态资源：缓存优先，回退网络；首页离线兜底
-  e.respondWith(caches.match(req).then(function (cached) {
-    if (cached) return cached;
-    return fetch(req).then(function (res) {
+  // 静态资源：网络优先、缓存兜底（M3）。发版后用户始终拿到最新 index.html / books.bundle.js，
+  // 避免「旧缓存卡住、选不了词本/计划」这类假象；同时又保留离线打开首页的能力。
+  e.respondWith(
+    fetch(req).then(function (res) {
       if (res && res.ok && url.origin === self.location.origin) {
         var copy = res.clone();
         caches.open(CACHE).then(function (c) { c.put(req, copy); });
       }
       return res;
     }).catch(function () {
-      if (url.pathname === '/' || url.pathname === '/index.html') return caches.match('/index.html');
-    });
-  }));
+      return caches.match(req).then(function (cached) {
+        if (cached) return cached;
+        if (url.pathname === '/' || url.pathname === '/index.html') return caches.match('/index.html');
+      });
+    })
+  );
 });

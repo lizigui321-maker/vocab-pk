@@ -519,9 +519,11 @@ function copyText(txt, okMsg){
   } else fallback();
 }
 function api(path, body, method){
+  var headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token; // L1：令牌走请求头，避免进入 URL/浏览器历史/服务器日志
   return fetch(path, {
     method: method || (body ? 'POST' : 'GET'),
-    headers: { 'Content-Type': 'application/json' },
+    headers: headers,
     body: body ? JSON.stringify(body) : undefined,
   }).then(function(r){
     return r.json().catch(function(){ return {}; }).then(function(d){
@@ -773,7 +775,7 @@ function renderHome(){
       '<span><button class="theme-toggle" id="thBtn">🌙</button> <button class="copybtn" id="setBtn">⚙️ 设置</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
     '</div>';
   app.innerHTML = topbar + '<div class="tagline"><span class="spin"></span></div>';
-  api('/api/study/overview?token=' + encodeURIComponent(token), null, 'GET')
+  api('/api/study/overview', null, 'GET')
     .then(function(ov){
       var hasPlan = !!ov.plan;
       var t = ov.today || { new: 0, review: 0, wrong: 0, dailyNew: 20, newRemaining: 0 };
@@ -823,7 +825,7 @@ function renderHome(){
 /* ---------- 设置（⚙️）：学习计划 / 外观 / 账号 ---------- */
 function renderSettings(){
   app.innerHTML = '<h1>⚙️ 设置</h1><div class="tagline"><span class="spin"></span></div>';
-  api('/api/study/overview?token=' + encodeURIComponent(token), null, 'GET')
+  api('/api/study/overview', null, 'GET')
     .then(function(ov){
       var plan = ov.plan || { bookId: (BOOKS[0] || {}).id, dailyNew: 20, vocabEstimate: 0, autoSpeak: true };
       var bookOpts = bookOptionsHTML(plan.bookId, ov.books);
@@ -1030,7 +1032,7 @@ function renderFriends(){
     api('/api/friend', { token: token, username: u }).then(function(){ toast('已添加 @' + u); renderFriends(); })
       .catch(function(e){ toast(e.message); });
   };
-  api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+  api('/api/friends', null, 'GET').then(function(d){
     var fs = d.friends || [];
     if (!fs.length) return;
     $('#fList').innerHTML = fs.map(function(f){
@@ -1039,7 +1041,7 @@ function renderFriends(){
         '<button class="copybtn pk-inv" data-u="' + esc(f.username) + '">⚡ 邀请PK</button>' +
         '<button class="del" data-u="' + esc(f.username) + '">移除</button></div>';
     }).join('');
-    $('#fList').querySelectorAll('.del').forEach(function(b){ b.onclick = function(){ api('/api/friend?token=' + encodeURIComponent(token) + '&username=' + encodeURIComponent(b.getAttribute('data-u')), null, 'DELETE').then(function(){ toast('已移除'); renderFriends(); }).catch(function(e){ toast(e.message); }); }; });
+    $('#fList').querySelectorAll('.del').forEach(function(b){ b.onclick = function(){ api('/api/friend?username=' + encodeURIComponent(b.getAttribute('data-u')), null, 'DELETE').then(function(){ toast('已移除'); renderFriends(); }).catch(function(e){ toast(e.message); }); }; });
     $('#fList').querySelectorAll('.pk-inv').forEach(function(b){ b.onclick = function(){ inviteFriendToPk(b.getAttribute('data-u')); }; });
   }).catch(function(e){ toast(e.message); });
 }
@@ -1075,7 +1077,7 @@ function renderGroups(){
   loadGroups();
 }
 function loadGroups(){
-  api('/api/groups?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+  api('/api/groups', null, 'GET').then(function(d){
     var gs = d.groups || [];
     if (!gs.length) { $('#gList').innerHTML = '<div class="wb-empty">还没有小组，创建一个或向朋友要邀请码吧～</div>'; return; }
     $('#gList').innerHTML = gs.map(function(g){
@@ -1096,10 +1098,10 @@ function renderGroupDetail(gid){
   app.innerHTML =
     '<div class="topbar" style="justify-content:space-between"><span class="chip">👥 小组打卡</span><button class="copybtn" id="gb">← 小组</button></div>' +
     '<div class="tagline"><span class="spin"></span></div>';
-  api('/api/groups?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+  api('/api/groups', null, 'GET').then(function(d){
     var g = (d.groups || []).find(function(x){ return x.id === gid; });
     if (!g) { toast('小组不存在'); renderGroups(); return; }
-    api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(fd){
+    api('/api/friends', null, 'GET').then(function(fd){
       var meU = account ? account.username : '';
       var friendSet = (fd.friends || []).map(function(f){ return f.username; });
       var rows = g.members.map(function(m){
@@ -1126,7 +1128,7 @@ function renderGroupDetail(gid){
       if (g.isOwner) {
         $('#cpCode').onclick = function(){ copyText(g.code, '邀请码已复制：' + g.code); };
         $('#addMem').onclick = function(){
-          api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(fd2){
+          api('/api/friends', null, 'GET').then(function(fd2){
             var inGroup = g.members.map(function(m){ return m.username; });
             var cands = (fd2.friends || []).filter(function(f){ return inGroup.indexOf(f.username) < 0; });
             showFriendPicker('邀请好友入组', cands, function(un){
@@ -1179,7 +1181,7 @@ function startInviteWatcher(){ if (inviteTimer) return; inviteTimer = setInterva
 function stopInviteWatcher(){ if (inviteTimer) { clearInterval(inviteTimer); inviteTimer = null; } }
 function checkInvites(){
   if (!token) return;
-  api('/api/invites?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+  api('/api/invites', null, 'GET').then(function(d){
     var list = d.invites || [];
     if (!list.length) { hideInviteBanner(); return; }
     var inv = list[0];
@@ -1197,12 +1199,12 @@ function showInviteBanner(inv){
   b.style.display = 'flex';
   $('#ibJoin').onclick = function(){
     b.style.display = 'none';
-    api('/api/invite?token=' + encodeURIComponent(token) + '&id=' + encodeURIComponent(inv.id), null, 'DELETE').catch(function(){});
+    api('/api/invite?id=' + encodeURIComponent(inv.id), null, 'DELETE').catch(function(){});
     api('/api/join', { token: token, roomId: inv.roomId }).then(function(d){ session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); })
       .catch(function(e){ toast(e.message); });
   };
   $('#ibIgnore').onclick = function(){
-    api('/api/invite?token=' + encodeURIComponent(token) + '&id=' + encodeURIComponent(inv.id), null, 'DELETE').catch(function(){});
+    api('/api/invite?id=' + encodeURIComponent(inv.id), null, 'DELETE').catch(function(){});
     b.style.display = 'none'; shownInviteId = null;
   };
 }
@@ -1210,7 +1212,7 @@ function hideInviteBanner(){ var b = $('#inviteBanner'); if (b) b.style.display 
 
 /* ---------- 生词本 ---------- */
 function renderWrongbook(){
-  api('/api/mywords?token=' + encodeURIComponent(token), null, 'GET')
+  api('/api/mywords', null, 'GET')
     .then(function(d){
       wrongList = d.words || [];
       var rows = wrongList.length ? wrongList.map(function(w){
@@ -1243,7 +1245,7 @@ function renderWrongbook(){
       app.querySelectorAll('.wrow .del').forEach(function(b){
         b.onclick = function(){
           var w = b.getAttribute('data-w');
-          api('/api/mywords?token=' + encodeURIComponent(token) + '&word=' + encodeURIComponent(w), null, 'DELETE')
+          api('/api/mywords?word=' + encodeURIComponent(w), null, 'DELETE')
             .then(function(){ toast('已删除 ' + w); renderWrongbook(); })
             .catch(function(e){ toast(e.message); });
         };
@@ -1273,7 +1275,7 @@ function renderWrongbook(){
       var ca = $('#clearAll');
       if (ca) ca.onclick = function(){
         if (!confirm('确定清空全部 ' + wrongList.length + ' 个生词？')) return;
-        api('/api/mywords?token=' + encodeURIComponent(token), null, 'DELETE')
+        api('/api/mywords', null, 'DELETE')
           .then(function(){ toast('已清空'); renderWrongbook(); })
           .catch(function(e){ toast(e.message); });
       };
@@ -1287,7 +1289,7 @@ function renderWrongbook(){
 function renderKnownbook(){
   page = 'knownbook';
   app.innerHTML = '<h1>📗 熟词本</h1><div class="tagline"><span class="spin"></span></div>';
-  api('/api/known?token=' + encodeURIComponent(token), null, 'GET')
+  api('/api/known', null, 'GET')
     .then(function(d){
       var list = d.words || [];
       var rows = list.length ? list.map(function(w){
@@ -1317,7 +1319,7 @@ function renderKnownbook(){
         b.onclick = function(){
           var word = b.getAttribute('data-k');
           if (!confirm('把「' + word + '」移回生词本（重新学习）？')) return;
-          api('/api/known?token=' + encodeURIComponent(token) + '&word=' + encodeURIComponent(word) + '&toWrong=1', null, 'DELETE')
+          api('/api/known?word=' + encodeURIComponent(word) + '&toWrong=1', null, 'DELETE')
             .then(function(){ toast('已移回生词本'); renderKnownbook(); })
             .catch(function(e){ toast(e.message); });
         };
@@ -1326,7 +1328,7 @@ function renderKnownbook(){
         b.onclick = function(){
           var word = b.getAttribute('data-k');
           if (!confirm('从熟词本删除「' + word + '」？')) return;
-          api('/api/known?token=' + encodeURIComponent(token) + '&word=' + encodeURIComponent(word), null, 'DELETE')
+          api('/api/known?word=' + encodeURIComponent(word), null, 'DELETE')
             .then(function(){ toast('已删除'); renderKnownbook(); })
             .catch(function(e){ toast(e.message); });
         };
@@ -1334,7 +1336,7 @@ function renderKnownbook(){
       var kc = $('#kbClear');
       if (kc) kc.onclick = function(){
         if (!confirm('确定清空整个熟词本？')) return;
-        api('/api/known?token=' + encodeURIComponent(token), null, 'DELETE')
+        api('/api/known', null, 'DELETE')
           .then(function(){ toast('已清空'); renderKnownbook(); })
           .catch(function(e){ toast(e.message); });
       };
@@ -1465,7 +1467,7 @@ function ringSvg(pct){
 }
 function renderStudy(){
   app.innerHTML = '<h1>📚 背单词</h1><div class="tagline"><span class="spin"></span></div>';
-  api('/api/study/overview?token=' + encodeURIComponent(token), null, 'GET')
+  api('/api/study/overview', null, 'GET')
     .then(function(d){
       stu.overview = d;
       if (!d.plan) renderStudyPlan(true);
@@ -1678,7 +1680,7 @@ function renderStudyPlan(isNew){
 }
 /* ---------- 学习 session ---------- */
 function stuStart(mode, unit, label){
-  var url = '/api/study/session?token=' + encodeURIComponent(token) + '&mode=' + mode + '&inputMode=' + encodeURIComponent(stu.inputMode || 'choice');
+  var url = '/api/study/session?mode=' + mode + '&inputMode=' + encodeURIComponent(stu.inputMode || 'choice');
   if (unit != null) url += '&unit=' + unit;
   app.innerHTML = '<h1>📚 背单词</h1><div class="tagline"><span class="spin"></span>出题中…</div>';
   api(url, null, 'GET').then(function(d){
@@ -1976,7 +1978,7 @@ function renderStuSummary(){
 function renderCustomBooks(){
   page = 'custom';
   app.innerHTML = '<h1>➕ 自定义词书</h1><div class="tagline"><span class="spin"></span></div>';
-  api('/api/custombooks?token=' + encodeURIComponent(token), null, 'GET')
+  api('/api/custombooks', null, 'GET')
     .then(function(d){
       var books = d.books || [];
       var listRows = books.length ? books.map(function(b){
@@ -2022,7 +2024,7 @@ function renderCustomBooks(){
         b.onclick = function(){
           var id = b.getAttribute('data-del');
           if (!confirm('删除这本词书？以其为计划的安排也会被取消。')) return;
-          api('/api/custombook?token=' + encodeURIComponent(token) + '&id=' + encodeURIComponent(id), null, 'DELETE')
+          api('/api/custombook?id=' + encodeURIComponent(id), null, 'DELETE')
             .then(function(){ toast('已删除'); renderCustomBooks(); })
             .catch(function(e){ toast(e.message); });
         };
@@ -2055,7 +2057,7 @@ function renderCustomBooks(){
 }
 /* ---------- 整账户备份 / 恢复 ---------- */
 function exportBackup(){
-  api('/api/backup?token=' + encodeURIComponent(token), null, 'GET')
+  api('/api/backup', null, 'GET')
     .then(function(d){
       var data = d.backup || {};
       data.app = 'vocab-pk'; data.version = 1;
@@ -2153,7 +2155,7 @@ function renderLobby(v){
   $('#backBtn').onclick = leaveRoom;
   var ivb = $('#inviteBtn');
   if (ivb) ivb.onclick = function(){
-    api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
+    api('/api/friends', null, 'GET').then(function(d){
       showFriendPicker('邀请好友进房间', d.friends || [], function(un){
         api('/api/pk/invite', { token: token, roomId: session.roomId, playerId: session.playerId, toUsername: un })
           .then(function(){ toast('已邀请 @' + un); }).catch(function(e){ toast(e.message); });
@@ -2371,13 +2373,22 @@ function boot(){
     return api('/api/info').then(function(d){ INFO = d; }).catch(function(){});
   }).then(function(){
     if (!token) { renderAuth(); return; }
-    // 已有令牌：校验有效性并取回账号信息
-    return api('/api/me?token=' + encodeURIComponent(token), null, 'GET')
-      .then(function(d){
-        if (d && d.username) { account = { username: d.username, name: d.name }; startInviteWatcher(); renderHome(); }
-        else { token = ''; localStorage.removeItem('vpk_token'); renderAuth(); }
+    // 已有令牌：校验有效性并取回账号信息（S3：只有服务器明确返回 401 才清 token；
+    // 网络错误/服务器冷启动/弱网一律保留登录态并自动重试，避免「明明有账号却被强制登出」）
+    return fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r){
+        if (r.status === 401) { token = ''; localStorage.removeItem('vpk_token'); renderAuth(); return; }
+        return r.json().catch(function(){ return {}; }).then(function(d){
+          if (d && d.username) { account = { username: d.username, name: d.name }; startInviteWatcher(); renderHome(); }
+          else { token = ''; localStorage.removeItem('vpk_token'); renderAuth(); }
+        });
       })
-      .catch(function(){ token = ''; localStorage.removeItem('vpk_token'); renderAuth(); });
+      .catch(function(){
+        // 网络异常：保留登录态，不清 token，5s 后自动重试
+        if (typeof toast === 'function') toast('网络异常，登录态已保留，稍后将自动重试');
+        if (token && !account) setTimeout(boot, 5000);
+        renderAuth();
+      });
   });
 }
 boot();

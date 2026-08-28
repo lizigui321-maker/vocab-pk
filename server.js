@@ -86,7 +86,7 @@ const ACCOUNTS_FILE = path.join(STORE, 'accounts.json');
 const SESSIONS_FILE = path.join(STORE, 'sessions.json');
 const GROUPS_FILE = path.join(STORE, 'groups.json');
 function loadJSON(f, dflt) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return dflt; } }
-function saveJSON(f, data) { try { fs.writeFileSync(f, JSON.stringify(data), 'utf8'); } catch (e) {} }
+function saveJSON(f, data) { try { fs.writeFileSync(f, JSON.stringify(data), 'utf8'); } catch (e) { console.error('[存储] 保存失败', f, (e && e.message) || e); } }
 
 /* ---- 可选云端持久化（Upstash Redis REST）：解决 Render 免费版每次部署/重启清空本地磁盘、
    导致账号与生词本全部丢失的问题。配置 UPSTASH_REDIS_REST_URL 与 UPSTASH_REDIS_REST_TOKEN
@@ -95,29 +95,42 @@ const UPSTASH_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/+$/, '
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
 const KV_ON = !!(UPSTASH_URL && UPSTASH_TOKEN && typeof fetch === 'function');
 const KV_PREFIX = 'vocabpk:v1:';
+/* kvUsable：云端是否可写。启动拉取失败时置为 false，本进程降级为「纯本地文件」模式，
+   并禁止用陈旧本地数据回灌覆盖云端（见 S2）。KV_ON 仅表示「已配置凭据」。 */
+let kvUsable = KV_ON;
+/* kvGet 必须区分三种情况：
+   - { ok:true, found:false } 云端该 key 真不存在（首次启用）→ 允许本地数据上传迁移
+   - { ok:true, found:true, value } 云端有值 → 用之
+   - { ok:false, error } 网络超时 / 5xx / DNS 失败 → 绝不能当作「不存在」去覆盖云端 */
 async function kvGet(key) {
   try {
     const r = await fetch(UPSTASH_URL + '/get/' + encodeURIComponent(KV_PREFIX + key), { headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN } });
-    if (!r.ok) return null;
+    if (!r.ok) return { ok: false, error: 'http_' + r.status };
     const d = await r.json().catch(() => ({}));
-    if (d.result == null) return null;
-    try { return JSON.parse(d.result); } catch (e) { return null; }
-  } catch (e) { return null; }
+    if (d.result == null) return { ok: true, found: false, value: null };
+    try { return { ok: true, found: true, value: JSON.parse(d.result) }; }
+    catch (e) { return { ok: true, found: true, value: null }; }
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
 async function kvSet(key, data) {
+  if (!kvUsable) return;
   try {
-    await fetch(UPSTASH_URL + '/set/' + encodeURIComponent(KV_PREFIX + key), {
+    const r = await fetch(UPSTASH_URL + '/set/' + encodeURIComponent(KV_PREFIX + key), {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN, 'Content-Type': 'application/json' },
       body: JSON.stringify(JSON.stringify(data)),
     });
-  } catch (e) {}
+    if (!r.ok) console.error('[KV] 写入失败', key, r.status);
+  } catch (e) { console.error('[KV] 写入异常', key, (e && e.message) || e); }
 }
 const kvTimers = {};
-function kvSave(key, data) { // 防抖合并：一次答题/操作只触发一次网络写
-  if (!KV_ON) return;
-  if (kvTimers[key]) clearTimeout(kvTimers[key]);
-  kvTimers[key] = setTimeout(() => { delete kvTimers[key]; kvSet(key, data); }, 400);
+/* 防抖合并：一次答题/操作只触发一次网络写。注意把 data 一并保存在定时器里，
+   这样退出前 flush 的是「保存时刻」的快照，而不是进程退出时的全局变量（旧实例的全局
+   可能还是它启动那一刻的陈旧数据，见 S1）。 */
+function kvSave(key, data) {
+  if (!kvUsable) return;
+  if (kvTimers[key]) clearTimeout(kvTimers[key].t);
+  kvTimers[key] = { t: setTimeout(() => { delete kvTimers[key]; kvSet(key, data); }, 400), data };
 }
 let vocabRank = loadJSON(RANK_FILE, []);     // [{name, best, latest, count, at}] 词汇量排行
 let accounts = loadJSON(ACCOUNTS_FILE, {});  // username(小写) -> {username, salt, hash, name, createdAt, words:[{word,meaning,book,at}]}
@@ -135,27 +148,60 @@ async function loadStoreFromKV() {
     const [kAcc, kSes, kGrp, kRk] = await Promise.all([
       kvGet('accounts'), kvGet('sessions'), kvGet('groups'), kvGet('vocab-rank'),
     ]);
+    /* S2：任意一项拉取失败（网络超时/5xx/DNS），一律视为「云端不可用」，
+       严禁用本地（可能是几天前的）数据覆盖云端 → 降级为本地文件模式。 */
+    if (!kAcc.ok || !kSes.ok || !kGrp.ok || !kRk.ok) {
+      kvUsable = false;
+      const err = (kAcc.error || kSes.error || kGrp.error || kRk.error || 'unknown');
+      console.log('  存储模式:  本地文件（云端拉取失败，已禁止本地数据回灌覆盖云端：' + err + '）');
+      return false;
+    }
     let migrated = false;
-    if (kAcc && typeof kAcc === 'object') { accounts = kAcc; } else if (Object.keys(accounts).length) { kvSet('accounts', accounts); migrated = true; }
-    if (kSes && typeof kSes === 'object') { sessions = kSes; } else if (Object.keys(sessions).length) { kvSet('sessions', sessions); migrated = true; }
-    if (kGrp && typeof kGrp === 'object') { groups = kGrp; } else if (Object.keys(groups).length) { kvSet('groups', groups); migrated = true; }
-    if (Array.isArray(kRk)) { vocabRank = kRk; } else if (vocabRank.length) { kvSet('vocab-rank', vocabRank); migrated = true; }
+    if (kAcc.found && kAcc.value && typeof kAcc.value === 'object') accounts = kAcc.value;
+    else if (!kAcc.found && Object.keys(accounts).length) { kvSet('accounts', accounts); migrated = true; }
+    if (kSes.found && kSes.value && typeof kSes.value === 'object') sessions = kSes.value;
+    else if (!kSes.found && Object.keys(sessions).length) { kvSet('sessions', sessions); migrated = true; }
+    if (kGrp.found && kGrp.value && typeof kGrp.value === 'object') groups = kGrp.value;
+    else if (!kGrp.found && Object.keys(groups).length) { kvSet('groups', groups); migrated = true; }
+    if (kRk.found && Array.isArray(kRk.value)) vocabRank = kRk.value;
+    else if (!kRk.found && vocabRank.length) { kvSet('vocab-rank', vocabRank); migrated = true; }
     saveJSON(ACCOUNTS_FILE, accounts); saveJSON(SESSIONS_FILE, sessions); saveJSON(GROUPS_FILE, groups); saveJSON(RANK_FILE, vocabRank);
     console.log('  存储模式:  Upstash Redis 云端持久化（账号/生词本跨部署不丢失）' + (migrated ? ' · 已完成本地→云端首次迁移' : ''));
     return true;
   } catch (e) {
-    console.log('  存储模式:  本地文件（云端拉取失败：' + (e && e.message || e) + '）');
+    kvUsable = false;
+    console.log('  存储模式:  本地文件（云端拉取异常，已禁止本地数据回灌覆盖云端：' + ((e && e.message) || e) + '）');
     return false;
   }
 }
-/* 进程退出前（Render 部署时会发 SIGTERM）把防抖挂起的写入立刻落到云端 */
-function kvFlush() {
-  if (!KV_ON) return;
-  for (const k of Object.keys(kvTimers)) { clearTimeout(kvTimers[k]); delete kvTimers[k]; }
-  kvSet('accounts', accounts); kvSet('sessions', sessions); kvSet('groups', groups); kvSet('vocab-rank', vocabRank);
+/* 进程退出前（Render 部署时会发 SIGTERM）：只把「仍在防抖队列里、代表最新一次保存动作」
+   的写入落盘，绝不把进程当前的全局变量整库覆盖写回云端。
+   原因（S1）：部署时新旧实例并存，旧实例内存里是它启动那一刻的陈旧快照；若把这份全局变量
+   整库回写，会抹掉部署窗口内新实例产生的所有注册/学习/生词本变动。这里只 flush 真正的
+   挂起写入（数据在保存那一刻就已捕获在定时器里），旧实例若无新请求则队列为空、什么都不写。 */
+async function kvFlush() {
+  if (!kvUsable) return;
+  const writes = [];
+  for (const k of Object.keys(kvTimers)) {
+    clearTimeout(kvTimers[k].t);
+    const d = kvTimers[k].data;
+    delete kvTimers[k];
+    writes.push(kvSet(k, d));
+  }
+  if (!writes.length) return;
+  try {
+    await Promise.race([
+      Promise.all(writes),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('kvFlush 超时')), 3000)),
+    ]);
+  } catch (e) { console.error('[KV] 退出前刷新失败', (e && e.message) || e); }
 }
-process.on('SIGTERM', () => { kvFlush(); setTimeout(() => process.exit(0), 600); });
-process.on('SIGINT', () => { kvFlush(); setTimeout(() => process.exit(0), 600); });
+function gracefulShutdown(sig) {
+  // kvFlush 内部自带 3s 总超时，不会因网络慢而卡死进程
+  kvFlush().then(() => process.exit(0)).catch(() => process.exit(0));
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 function hashPassword(pw, salt){ return crypto.scryptSync(String(pw), salt, 32).toString('hex'); }
 function newSession(username){
   const token = crypto.randomBytes(24).toString('hex');
@@ -168,6 +214,17 @@ function authUser(token){
   if (!s) return null;
   if (Date.now() - s.at > 30 * 24 * 3600 * 1000) { delete sessions[token]; saveSessions(); return null; } // 30 天免登录
   return accounts[String(s.username).toLowerCase()] || null;
+}
+/* 取令牌：优先 Authorization: Bearer <token> 头（避免令牌进入 URL → 浏览器历史/代理日志/
+   Render 访问日志），其次回退到 query(?token=) 与 body.token（SSE 的 EventSource 无法自定义
+   请求头，仍需走 query；旧客户端也靠 query/body 兼容）。 */
+function tokenOf(req, u, b) {
+  const auth = req.headers['authorization'] || req.headers['Authorization'];
+  if (auth) { const m = /^Bearer\s+(.+)$/i.exec(String(auth)); if (m) return m[1].trim(); }
+  const q = u.searchParams.get('token');
+  if (q) return q;
+  if (b && b.token) return b.token;
+  return '';
 }
 const RE_USER = /^[a-zA-Z0-9_]{3,16}$/;
 
@@ -480,14 +537,39 @@ function send(res, code, obj) {
   });
   res.end(JSON.stringify(obj));
 }
+const MAX_BODY = 20 * 1024 * 1024; // 20MB：备份恢复等大请求也能容纳，超过才拒绝（L7）
 function readBody(req) {
   return new Promise((resolve) => {
     let b = '';
-    req.on('data', (c) => { b += c; if (b.length > 1e6) req.destroy(); });
-    req.on('end', () => { try { resolve(b ? JSON.parse(b) : {}); } catch (e) { resolve({}); } });
+    let tooBig = false;
+    req.on('data', (c) => { b += c; if (b.length > MAX_BODY) { tooBig = true; req.destroy(); } });
+    req.on('end', () => {
+      if (tooBig) return resolve({ __tooLarge: true });
+      try { resolve(b ? JSON.parse(b) : {}); } catch (e) { resolve({ __invalid: true }); }
+    });
     req.on('error', () => resolve({}));
   });
 }
+/* 频率限制（L2，防暴力破解）：
+   - 登录：只统计「失败」次数（用户名/密码错）。同一 IP 10 分钟内失败超 30 次才封禁，
+     正常多账号注册/登录不会被误伤；暴力破解几乎全是失败尝试，会被有效拖慢。
+   - 注册：同一 IP 10 分钟内最多 50 次，防批量注册垃圾账号。 */
+const loginFails = new Map();   // ip -> { count, first }
+const regFails = new Map();     // ip -> { count, first }
+function clientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) return String(xff).split(',')[0].trim();
+  return (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+function _throttleBucket(map, ip) {
+  const now = Date.now();
+  let e = map.get(ip);
+  if (!e || now - e.first > 10 * 60 * 1000) { e = { count: 0, first: now }; map.set(ip, e); }
+  return e;
+}
+function noteLoginFailure(ip) { _throttleBucket(loginFails, ip).count += 1; }
+function loginThrottled(ip) { return _throttleBucket(loginFails, ip).count > 30; }
+function registerThrottled(ip) { return _throttleBucket(regFails, ip).count > 50; }
 function lanIPs() {
   const out = [];
   const nets = os.networkInterfaces();
@@ -733,7 +815,8 @@ function serveStatic(req, res) {
   try { p = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch (e) { p = '/'; }
   if (p === '/') p = '/index.html';
   const fp = path.normalize(path.join(PUB, p));
-  if (!fp.startsWith(PUB)) { send(res, 403, { error: 'forbidden' }); return; }
+  // 必须带路径分隔符，否则 "publicXXX" 这类同级目录会被 startsWith 误判放行（L5）
+  if (fp !== PUB && !fp.startsWith(PUB + path.sep)) { send(res, 403, { error: 'forbidden' }); return; }
   fs.readFile(fp, (err, data) => {
     if (err) { send(res, 404, { error: 'not found' }); return; }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(fp)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
@@ -751,11 +834,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/info') {
       let publicUrl = '';
       try { publicUrl = fs.readFileSync('store/public-url.txt', 'utf8').trim(); } catch (e) {}
-      return send(res, 200, { port: PORT, ips: lanIPs(), publicUrl, storeMode: KV_ON ? 'upstash' : 'local' });
+      return send(res, 200, { port: PORT, ips: lanIPs(), publicUrl, storeMode: kvUsable ? 'upstash' : 'local' });
     }
     // ---------------- 账号系统接口 ----------------
     if (req.method === 'POST' && p === '/api/register') {
       const b = await readBody(req);
+      if (b.__tooLarge) return send(res, 413, { error: '请求体过大' });
+      if (registerThrottled(clientIp(req))) return send(res, 429, { error: '注册过于频繁，请稍后再试' });
       const username = String(b.username || '').trim();
       const password = String(b.password || '');
       const name = String(b.name || '').trim().slice(0, 12);
@@ -773,21 +858,24 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/login') {
       const b = await readBody(req);
+      if (b.__tooLarge) return send(res, 413, { error: '请求体过大' });
+      const ip = clientIp(req);
+      if (loginThrottled(ip)) return send(res, 429, { error: '登录尝试过于频繁，请稍后再试' });
       const username = String(b.username || '').trim().toLowerCase();
       const password = String(b.password || '');
       const acc = accounts[username];
-      if (!acc || acc.hash !== hashPassword(password, acc.salt)) return send(res, 401, { error: '用户名或密码错误' });
+      if (!acc || acc.hash !== hashPassword(password, acc.salt)) { noteLoginFailure(ip); return send(res, 401, { error: '用户名或密码错误' }); }
       const token = newSession(username);
       return send(res, 200, { token, username: acc.username, name: acc.name });
     }
     if (req.method === 'GET' && p === '/api/me') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '未登录' });
       return send(res, 200, { username: acc.username, name: acc.name });
     }
     if (req.method === 'POST' && p === '/api/me') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '未登录' });
       const name = String(b.name || '').trim().slice(0, 12);
       if (name) { acc.name = name; saveAccounts(); }
@@ -795,7 +883,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/me/password') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '未登录' });
       const oldPassword = String(b.oldPassword || '');
       const newPassword = String(b.newPassword || '');
@@ -803,6 +891,12 @@ const server = http.createServer(async (req, res) => {
       if (newPassword.length < 6) return send(res, 400, { error: '新密码至少 6 位' });
       acc.salt = crypto.randomBytes(16).toString('hex');
       acc.hash = hashPassword(newPassword, acc.salt);
+      // 改密码后让该用户所有会话（含其他设备）失效，防止旧会话被劫持后长期可用（L6）
+      const lower = acc.username.toLowerCase();
+      for (const [tk, s] of Object.entries(sessions)) {
+        if (String(s.username).toLowerCase() === lower) delete sessions[tk];
+      }
+      saveSessions();
       saveAccounts();
       return send(res, 200, { ok: true });
     }
@@ -874,7 +968,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && p === '/api/friend') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const target = String(b.username || '').trim().toLowerCase();
       if (!RE_USER.test(target)) return send(res, 400, { error: '用户名需 3-16 位字母/数字/下划线' });
@@ -885,7 +979,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, friends: friendList(acc) });
     }
     if (req.method === 'DELETE' && p === '/api/friend') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const target = String(u.searchParams.get('username') || '').trim().toLowerCase();
       acc.friends = (acc.friends || []).filter((x) => x !== target);
@@ -893,13 +987,13 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, friends: friendList(acc) });
     }
     if (req.method === 'GET' && p === '/api/friends') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       return send(res, 200, { friends: friendList(acc) });
     }
     if (req.method === 'POST' && p === '/api/group') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const name = String(b.name || '').trim().slice(0, 20);
       if (!name) return send(res, 400, { error: '小组名不能为空' });
@@ -910,7 +1004,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/group/join') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const code = String(b.code || '').trim().toUpperCase();
       let gid = null;
@@ -924,7 +1018,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'DELETE' && p === '/api/group') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const g = groups[String(b.groupId || '')];
       if (!g) return send(res, 404, { error: '小组不存在' });
@@ -939,7 +1033,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/group/member') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const g = groups[String(b.groupId || '')];
       if (!g) return send(res, 404, { error: '小组不存在' });
@@ -952,7 +1046,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, group: groupView(g.id, acc.username) });
     }
     if (req.method === 'GET' && p === '/api/groups') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const me = acc.username.toLowerCase();
       const list = Object.values(groups).filter((g) => g.members.includes(me)).map((g) => groupView(g.id, me));
@@ -960,7 +1054,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/pk/invite') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const room = rooms.get(String(b.roomId || '').trim().toUpperCase());
       if (!room) return send(res, 404, { error: '房间不存在' });
@@ -978,7 +1072,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
     if (req.method === 'GET' && p === '/api/invites') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const me = acc.username.toLowerCase();
       const list = (invites.get(me) || []).filter((x) => x.expiresAt > Date.now());
@@ -986,7 +1080,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { invites: list });
     }
     if (req.method === 'DELETE' && p === '/api/invite') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const id = u.searchParams.get('id') || '';
       const me = acc.username.toLowerCase();
@@ -996,7 +1090,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && p === '/api/create') {
       const b = await readBody(req);
-      const account = authUser(b.token);
+      const account = authUser(tokenOf(req, u, b));
       if (!account) return send(res, 401, { error: '请先登录' });
       const bookId = BOOKS.some((x) => x.id === b.bookId) ? b.bookId : BOOKS[0].id;
       const mode = b.mode === 'listen' ? 'listen' : 'word';
@@ -1010,7 +1104,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const room = rooms.get(String(b.roomId || '').trim().toUpperCase());
       if (!room) return send(res, 404, { error: '房间不存在，请检查房号' });
-      const account = authUser(b.token);
+      const account = authUser(tokenOf(req, u, b));
       if (!account) return send(res, 401, { error: '请先登录' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '游戏进行中，请等本局结束后再加入' });
       if (room.players.size >= 5) return send(res, 400, { error: '房间已满（最多 5 人）' });
@@ -1081,12 +1175,12 @@ const server = http.createServer(async (req, res) => {
     }
     // ---------------- 账号个人生词本 ----------------
     if (req.method === 'GET' && p === '/api/mywords') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       return send(res, 200, { words: acc.words || [], username: acc.username });
     }
     if (req.method === 'DELETE' && p === '/api/mywords') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       if (!acc.words) acc.words = [];
       const word = String(u.searchParams.get('word') || '').trim();
@@ -1133,7 +1227,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/vocabtest/submit') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       const name = acc ? acc.username : String(b.name || '').trim().slice(0, 12);
       if (!name) return send(res, 400, { error: '请先登录' });
       const answers = Array.isArray(b.answers) ? b.answers : [];
@@ -1171,7 +1265,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p === '/api/vocabrank') {
       const list = vocabRank.map((x, i) => ({ rank: i + 1, name: x.name, best: x.best, latest: x.latest, count: x.count, at: x.at }));
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       const myName = acc ? acc.username : String(u.searchParams.get('name') || '').trim();
       let you = null;
       if (myName) {
@@ -1182,13 +1276,13 @@ const server = http.createServer(async (req, res) => {
     }
     /* ---------------- 背单词：学习计划 / 出题 / 作答 / 统计 ---------------- */
     if (req.method === 'GET' && p === '/api/study/overview') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       return send(res, 200, studyOverview(acc));
     }
     if (req.method === 'POST' && p === '/api/study/plan') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const st = getStudy(acc);
       const bookId = resolveBook(acc, b.bookId) ? b.bookId : (st.plan && st.plan.bookId) || BOOKS[0].id;
@@ -1204,7 +1298,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, plan: st.plan, skipped, total: book.words.length - skipped, bookName: book.name });
     }
     if (req.method === 'GET' && p === '/api/study/session') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const st = getStudy(acc);
       if (!st.plan) return send(res, 400, { error: '请先设置学习计划' });
@@ -1259,14 +1353,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/study/answer') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       if (!b.word) return send(res, 400, { error: '缺少单词' });
       return send(res, 200, studyAnswer(acc, b.word, !!b.correct, b.ms));
     }
     if (req.method === 'POST' && p === '/api/study/reset') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       if (b.scope === 'all') acc.study = { plan: null, progress: {}, log: {} };
       else if (b.scope === 'plan') { const st = getStudy(acc); st.plan = null; }
@@ -1277,7 +1371,7 @@ const server = http.createServer(async (req, res) => {
     /* 标记为「已会」（熟词）：移出生词本 + 写入熟词本 + 进度置为掌握 */
     if (req.method === 'POST' && p === '/api/study/markKnown') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const word = String(b.word || '').trim();
       if (!word) return send(res, 400, { error: '缺少单词' });
@@ -1303,12 +1397,12 @@ const server = http.createServer(async (req, res) => {
     }
     /* 熟词本：查询 / 移除（toWrong=1 时移回生词本） */
     if (req.method === 'GET' && p === '/api/known') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       return send(res, 200, { words: acc.known || [], username: acc.username });
     }
     if (req.method === 'DELETE' && p === '/api/known') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const known = acc.known = acc.known || [];
       const word = String(u.searchParams.get('word') || '').trim();
@@ -1331,7 +1425,7 @@ const server = http.createServer(async (req, res) => {
     /* 自定义词书：新建 / 列表 / 删除 */
     if (req.method === 'POST' && p === '/api/custombook') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const name = String(b.name || '').trim().slice(0, 30) || ('我的词书 ' + (((acc.customBooks || []).length) + 1));
       const lang = b.lang === 'es' ? 'es' : 'en';
@@ -1357,12 +1451,12 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true, id, name, count: words.length, lang });
     }
     if (req.method === 'GET' && p === '/api/custombooks') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       return send(res, 200, { books: (acc.customBooks || []).map((x) => ({ id: x.id, name: x.name, count: (x.words || []).length, lang: x.lang || 'en' })) });
     }
     if (req.method === 'DELETE' && p === '/api/custombook') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const id = u.searchParams.get('id') || '';
       acc.customBooks = (acc.customBooks || []).filter((x) => x.id !== id);
@@ -1373,7 +1467,7 @@ const server = http.createServer(async (req, res) => {
     }
     /* 整账户备份 / 恢复（生词本 + 熟词本 + 自定义词书 + 学习进度） */
     if (req.method === 'GET' && p === '/api/backup') {
-      const acc = authUser(u.searchParams.get('token') || '');
+      const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       return send(res, 200, { backup: {
         username: acc.username, words: acc.words || [], known: acc.known || [],
@@ -1382,16 +1476,47 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/restore') {
       const b = await readBody(req);
-      const acc = authUser(b.token);
+      if (b.__tooLarge) return send(res, 413, { error: '备份数据过大（超过 20MB）' });
+      const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       const data = b.backup;
       if (!data || typeof data !== 'object') return send(res, 400, { error: '备份数据格式不正确' });
-      acc.words = Array.isArray(data.words) ? data.words : (acc.words || []);
-      acc.known = Array.isArray(data.known) ? data.known : (acc.known || []);
-      acc.customBooks = Array.isArray(data.customBooks) ? data.customBooks : (acc.customBooks || []);
-      acc.study = data.study && typeof data.study === 'object' ? data.study : (acc.study || null);
-      if (!acc.known) acc.known = [];
-      if (!acc.customBooks) acc.customBooks = [];
+      // 逐条校验字段类型，脏备份无法注入异常数据（L8）
+      function pickWordList(arr) {
+        if (!Array.isArray(arr)) return null;
+        const out = [];
+        for (const it of arr) {
+          if (!it || typeof it !== 'object' || typeof it.word !== 'string') continue;
+          out.push({
+            word: String(it.word),
+            meaning: typeof it.meaning === 'string' ? it.meaning : '',
+            book: typeof it.book === 'string' ? it.book : '',
+            lang: it.lang === 'es' ? 'es' : (typeof it.lang === 'string' ? it.lang : 'en'),
+            at: Number(it.at) || Date.now(),
+          });
+        }
+        return out;
+      }
+      const words = pickWordList(data.words);
+      const known = pickWordList(data.known);
+      const customBooks = (Array.isArray(data.customBooks) ? data.customBooks : []).map(function (it) {
+        if (!it || typeof it.id !== 'string' || !Array.isArray(it.words)) return null;
+        return {
+          id: String(it.id),
+          name: typeof it.name === 'string' ? it.name : '我的词书',
+          lang: it.lang === 'es' ? 'es' : 'en',
+          words: (it.words || []).filter(function (w) { return Array.isArray(w) && typeof w[0] === 'string'; }).map(function (w) { return [String(w[0]), typeof w[1] === 'string' ? w[1] : '']; }),
+          createdAt: Number(it.createdAt) || Date.now(),
+        };
+      }).filter(Boolean);
+      acc.words = words || (acc.words || []);
+      acc.known = known || (acc.known || []);
+      acc.customBooks = customBooks || (acc.customBooks || []);
+      acc.study = (data.study && typeof data.study === 'object') ? {
+        plan: (data.study.plan === null || typeof data.study.plan === 'object') ? data.study.plan : null,
+        progress: (data.study.progress && typeof data.study.progress === 'object') ? data.study.progress : {},
+        log: (data.study.log && typeof data.study.log === 'object') ? data.study.log : {},
+      } : (acc.study || null);
       saveAccounts();
       return send(res, 200, { ok: true });
     }

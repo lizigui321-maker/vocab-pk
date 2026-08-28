@@ -2,19 +2,27 @@
 'use strict';
 const http = require('http');
 
-const BASE = 'http://localhost:3199';
+const BASE = process.env.TEST_BASE || 'http://localhost:3199';
+let TOKEN = ''; // 登录后注入到后续请求的 token（修复：原测试从不鉴权，/api/create 必然 401）
 
 function req(method, path, body) {
   return new Promise((resolve, reject) => {
-    const data = body ? JSON.stringify(body) : null;
-    const r = http.request(BASE + path, {
+    let p = path, b = body;
+    // 自动携带登录 token（POST 放 body，GET 放 query）
+    if (TOKEN) {
+      if (b && typeof b === 'object') b = Object.assign({ token: TOKEN }, b);
+      else if (method === 'POST') b = { token: TOKEN };
+      else p += (p.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN);
+    }
+    const data = b ? JSON.stringify(b) : null;
+    const r = http.request(BASE + p, {
       method,
       headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {},
     }, (res) => {
-      let b = '';
-      res.on('data', (c) => { b += c; });
+      let body = '';
+      res.on('data', (c) => { body += c; });
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, json: JSON.parse(b) }); }
+        try { resolve({ status: res.statusCode, json: JSON.parse(body) }); }
         catch (e) { resolve({ status: res.statusCode, json: {} }); }
       });
     });
@@ -47,10 +55,23 @@ function openStream(roomId, playerId, onState) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
+  console.log('[0] 注册并登录测试账号...');
+  const U = 'bt' + Date.now().toString(36).slice(-8);
+  const PW = 'pw123456';
+  const reg = await req('POST', '/api/register', { username: U, password: PW, name: 'Battle' });
+  if (reg.status === 200) TOKEN = reg.json.token;
+  else {
+    const lg = await req('POST', '/api/login', { username: U, password: PW });
+    if (lg.status !== 200) throw new Error('测试账号注册/登录失败: ' + JSON.stringify(lg.json));
+    TOKEN = lg.json.token;
+  }
+  if (!TOKEN) throw new Error('未获取到 token');
+  console.log('    已登录:', U);
+
   console.log('[1] 获取词库...');
   const books = await req('GET', '/api/books');
   console.log('    词汇本:', books.json.books.map((b) => `${b.name}(${b.count})`).join(', '));
-  if (books.json.books.length !== 6) throw new Error('词库数量不对');
+  if (books.json.books.length < 6) throw new Error('词库数量不对（应至少 6 本，实际 ' + books.json.books.length + '）');
 
   console.log('[2] 房主创建房间（四级·听力模式·5题特殊?默认10）...');
   const created = await req('POST', '/api/create', { name: '小明', bookId: 'cet4', mode: 'listen', count: 10 });

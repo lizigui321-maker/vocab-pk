@@ -121,6 +121,11 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .seg button.on{border-color:var(--brand);color:var(--brand);background:#eaf3ff;font-weight:600}
 [data-theme="dark"] .seg button.on{background:rgba(10,132,255,.16);}
 .seg button small{display:block;font-size:11px;color:var(--sub);font-weight:400;margin-top:2px}
+.stu-extra{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
+.stu-extra .lbl{font-size:14px;color:var(--ink)}
+.seg.sm{gap:6px}
+.seg.sm button{flex:0 0 auto;min-width:48px;padding:8px 12px;font-size:14px;border-radius:11px}
+.stu-extra .btn{display:inline-block;width:auto;margin-top:0;padding:9px 16px;font-size:14px}
 .btn{
   display:block;width:100%;padding:15px 0;border:none;border-radius:15px;font-size:17px;font-weight:600;
   cursor:pointer;margin-top:20px;transition:transform .12s var(--ease), box-shadow .12s var(--ease);color:#fff;
@@ -1453,8 +1458,29 @@ var stu = {
   view: 'dash',        // dash | plan | session | summary
   overview: null,
   sess: null,          // {mode, unit, queue, idx, right, wrong, wrongWords, marks:[], extra}
+  extraStep: 20,       // 临时加学每次的量（10/20/50），记住上次选择
   lastSpeak: '',
 };
+function getExtraStep(){
+  var n = parseInt(localStorage.getItem('vocabpk_extraStep') || '20', 10);
+  if (n !== 10 && n !== 20 && n !== 50) n = 20;
+  return n;
+}
+function setExtraStep(n){ try { localStorage.setItem('vocabpk_extraStep', String(n)); } catch(e){} }
+stu.extraStep = getExtraStep();
+/* 临时加学量选择器：点击 10/20/50 更新并记住；同步刷新「加学」按钮文案 */
+function bindExtraSeg(segId, btnId){
+  var seg = document.getElementById(segId); if (!seg) return;
+  var btn = document.getElementById(btnId);
+  seg.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    stu.extraStep = parseInt(b.getAttribute('data-v'), 10) || 20;
+    setExtraStep(stu.extraStep);
+    seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+    b.classList.add('on');
+    if (btn) btn.textContent = '🌱 加学 ' + stu.extraStep + ' 个';
+  });
+}
 function stuLevel(n){ // 学习量分级（日历条配色）
   if (n >= 40) return 4; if (n >= 20) return 3; if (n >= 10) return 2; if (n > 0) return 1; return 0;
 }
@@ -1522,7 +1548,14 @@ function renderStuDash(){
     '</div>' +
     '<button class="btn" id="stuGo">开始学习 ' + (t.newRemaining > 0 || ov.due > 0 ? '📖' : '（复习模式）🔁') + '</button>' +
     '<button class="btn ghost" id="stuReview">🎯 复习生词本（' + ov.wrongCount + '）</button>' +
-    (t.newRemaining === 0 && t.newPoolRemaining > 0 ? '<button class="btn ghost" id="stuExtra">🌱 临时加学20个</button>' : '') +
+    (t.newRemaining === 0 && t.newPoolRemaining > 0 ?
+      '<div class="stu-extra"><span class="lbl">🌱 临时加学</span>' +
+      '<div class="seg sm" id="extraSeg">' +
+        '<button data-v="10" class="' + (stu.extraStep === 10 ? 'on' : '') + '">10</button>' +
+        '<button data-v="20" class="' + (stu.extraStep === 20 ? 'on' : '') + '">20</button>' +
+        '<button data-v="50" class="' + (stu.extraStep === 50 ? 'on' : '') + '">50</button>' +
+      '</div>' +
+      '<button class="btn ghost" id="stuExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
   '</div>' +
   '<div class="card">' +
     '<div class="wb-head"><span class="wb-count">学习概况</span></div>' +
@@ -1554,7 +1587,8 @@ function renderStuDash(){
   var ss = document.getElementById('stuSet'); if (ss) ss.onclick = function(){ page = 'settings'; renderSettings(); };
   $('#stuGo').onclick = function(){ stuStart('daily'); };
   $('#stuReview').onclick = function(){ stuStart('review'); };
-  var se = document.getElementById('stuExtra'); if (se) se.onclick = function(){ stuStart('daily', null, '临时加学', 20); };
+  var se = document.getElementById('stuExtra'); if (se) se.onclick = function(){ stuStart('daily', null, '临时加学', stu.extraStep); };
+  bindExtraSeg('extraSeg', 'stuExtra');
   $('#stuPlanEdit').onclick = function(){ renderStudyPlan(false); };
   $('#goKnown').onclick = function(){ page = 'knownbook'; renderKnownbook(); };
   $('#goCustom').onclick = function(){ renderCustomBooks(); };
@@ -1968,14 +2002,22 @@ function renderStuSummary(){
   '</div>' +
   '<div class="card" style="padding:14px">' +
     '<button class="btn" id="ssAgain">再来一轮 🔁</button>' +
-    (s.extra && s.extra.newPoolRemaining > 0 ? '<button class="btn" id="ssExtra">🌱 临时加学20个</button>' : '') +
+    (s.extra && s.extra.newPoolRemaining > 0 ?
+      '<div class="stu-extra"><span class="lbl">🌱 临时加学</span>' +
+      '<div class="seg sm" id="ssExtraSeg">' +
+        '<button data-v="10" class="' + (stu.extraStep === 10 ? 'on' : '') + '">10</button>' +
+        '<button data-v="20" class="' + (stu.extraStep === 20 ? 'on' : '') + '">20</button>' +
+        '<button data-v="50" class="' + (stu.extraStep === 50 ? 'on' : '') + '">50</button>' +
+      '</div>' +
+      '<button class="btn" id="ssExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
     '<button class="btn ghost" id="ssHome">返回学习主页</button>' +
   '</div>';
   app.querySelectorAll('.wl-row .w').forEach(function(el){
     el.onclick = function(){ speak(el.getAttribute('data-w') || el.textContent.replace('🔊 ', ''), s.lang); };
   });
   $('#ssAgain').onclick = function(){ stuStart(s.mode, s.unit, s.label); };
-  var sx = document.getElementById('ssExtra'); if (sx) sx.onclick = function(){ stuAddExtra(20); };
+  var sx = document.getElementById('ssExtra'); if (sx) sx.onclick = function(){ stuAddExtra(stu.extraStep); };
+  bindExtraSeg('ssExtraSeg', 'ssExtra');
   $('#ssHome').onclick = function(){ renderStudy(); };
 }
 /* 临时加学：再拉 extraNew 个未学新词，追加到当前这一轮队列里继续学（可反复点击叠加） */

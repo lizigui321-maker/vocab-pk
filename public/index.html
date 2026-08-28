@@ -173,6 +173,10 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .qmeta{font-size:13px;color:var(--sub);margin-bottom:8px}
 .word{font-size:44px;font-weight:700;letter-spacing:.5px;color:var(--ink);margin:10px 0 6px}
 .meaning{font-size:18px;color:var(--ok);font-weight:700}
+.ipa{font-size:15px;color:var(--sub);margin:2px 0 10px;line-height:1.5;text-align:center;font-family:"Helvetica Neue",Arial,sans-serif}
+.ipa-t{font-style:italic}
+.ipa-audio{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--brand);font-size:13px;cursor:pointer;vertical-align:middle;margin-left:6px;transition:transform .12s var(--ease)}
+.ipa-audio:active{transform:scale(.9)}
 .listen-btn{
   width:108px;height:108px;border-radius:50%;border:none;cursor:pointer;margin:14px auto;
   background:var(--brand);color:#fff;font-size:42px;
@@ -688,7 +692,6 @@ function renderAuth(){
       '<input type="text" id="nickInput" maxlength="12" placeholder="给自己起个名字">' +
     '</div>' +
     '<button class="btn" id="authBtn">登录 🐱</button>' +
-    '<div class="hint"><b>说明</b><br>· 账号用于保存你的<b>独立生词本</b>和<b>昵称</b>，换设备、清缓存都不丢；<br>· 按你的要求<b>不支持上传头像</b>；<br>· 注册后自动登录。</div>' +
   '</div>';
 
   var mode = 'login';
@@ -1095,37 +1098,51 @@ function renderGroupDetail(gid){
   api('/api/groups?token=' + encodeURIComponent(token), null, 'GET').then(function(d){
     var g = (d.groups || []).find(function(x){ return x.id === gid; });
     if (!g) { toast('小组不存在'); renderGroups(); return; }
-    var meU = account ? account.username : '';
-    var rows = g.members.map(function(m){
-      var badge = m.online ? '<span style="color:var(--ok)">● 在线</span>' : '🔥 ' + m.streak + ' 天';
-      var last = m.lastActive ? '最近 ' + m.lastActive.slice(5) : '未打卡';
-      return '<div class="cb-row"><span class="nm">' + esc(m.name) + (m.isOwner ? ' 👑' : '') + ' <small>@' + esc(m.username) + '</small></span>' +
-        '<span class="ct">今日 新' + m.today.new + '/复习' + m.today.review + ' · ' + badge + ' · ' + last + '</span>' +
-        (m.username === meU ? '' : '<button class="copybtn pk-inv" data-u="' + esc(m.username) + '">⚡ 邀请PK</button>') +
-        '</div>';
-    }).join('');
-    app.innerHTML =
-      '<div class="topbar" style="justify-content:space-between"><span class="chip">👥 ' + esc(g.name) + '</span><button class="copybtn" id="gb">← 小组</button></div>' +
-      '<h1>👥 ' + esc(g.name) + '</h1>' +
-      '<div class="tagline">共 ' + g.members.length + ' 人 · 邀请码 <b>' + esc(g.code) + '</b>' +
-        (g.isOwner ? ' · <button class="copybtn" id="cpCode">复制邀请码</button> <button class="copybtn" id="addMem">➕ 邀请好友入组</button>' : '') + '</div>' +
-      '<div class="card"><div class="wb-head"><span class="wb-count">成员打卡</span></div>' + (rows || '<div class="wb-empty">暂无成员</div>') + '</div>' +
-      '<div class="card" style="padding:14px"><button class="btn ghost" id="gb2">返回小组列表</button></div>';
-    $('#gb').onclick = renderGroups; $('#gb2').onclick = renderGroups;
-    if (g.isOwner) {
-      $('#cpCode').onclick = function(){ copyText(g.code, '邀请码已复制：' + g.code); };
-      $('#addMem').onclick = function(){
-        api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(fd){
-          var inGroup = g.members.map(function(m){ return m.username; });
-          var cands = (fd.friends || []).filter(function(f){ return inGroup.indexOf(f.username) < 0; });
-          showFriendPicker('邀请好友入组', cands, function(un){
-            api('/api/group/member', { token: token, groupId: g.id, username: un }).then(function(){ toast('已添加 @' + un); renderGroupDetail(g.id); })
-              .catch(function(e){ toast(e.message); });
-          });
-        }).catch(function(e){ toast(e.message); });
-      };
-    }
-    app.querySelectorAll('.pk-inv').forEach(function(b){ b.onclick = function(){ inviteFriendToPk(b.getAttribute('data-u')); }; });
+    api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(fd){
+      var meU = account ? account.username : '';
+      var friendSet = (fd.friends || []).map(function(f){ return f.username; });
+      var rows = g.members.map(function(m){
+        var badge = m.online ? '<span style="color:var(--ok)">● 在线</span>' : '🔥 ' + m.streak + ' 天';
+        var last = m.lastActive ? '最近 ' + m.lastActive.slice(5) : '未打卡';
+        var actions = '';
+        if (m.username !== meU) {
+          actions += '<button class="copybtn pk-inv" data-u="' + esc(m.username) + '">⚡ 邀请PK</button>';
+          if (friendSet.indexOf(m.username) < 0) actions += '<button class="copybtn add-fr" data-u="' + esc(m.username) + '">＋ 加好友</button>';
+        }
+        return '<div class="cb-row"><span class="nm">' + esc(m.name) + (m.isOwner ? ' 👑' : '') + ' <small>@' + esc(m.username) + '</small></span>' +
+          '<span class="ct">今日 新' + m.today.new + '/复习' + m.today.review + ' · ' + badge + ' · ' + last + '</span>' +
+          actions +
+          '</div>';
+      }).join('');
+      app.innerHTML =
+        '<div class="topbar" style="justify-content:space-between"><span class="chip">👥 ' + esc(g.name) + '</span><button class="copybtn" id="gb">← 小组</button></div>' +
+        '<h1>👥 ' + esc(g.name) + '</h1>' +
+        '<div class="tagline">共 ' + g.members.length + ' 人 · 邀请码 <b>' + esc(g.code) + '</b>' +
+          (g.isOwner ? ' · <button class="copybtn" id="cpCode">复制邀请码</button> <button class="copybtn" id="addMem">➕ 邀请好友入组</button>' : '') + '</div>' +
+        '<div class="card"><div class="wb-head"><span class="wb-count">成员打卡</span></div>' + (rows || '<div class="wb-empty">暂无成员</div>') + '</div>' +
+        '<div class="card" style="padding:14px"><button class="btn ghost" id="gb2">返回小组列表</button></div>';
+      $('#gb').onclick = renderGroups; $('#gb2').onclick = renderGroups;
+      if (g.isOwner) {
+        $('#cpCode').onclick = function(){ copyText(g.code, '邀请码已复制：' + g.code); };
+        $('#addMem').onclick = function(){
+          api('/api/friends?token=' + encodeURIComponent(token), null, 'GET').then(function(fd2){
+            var inGroup = g.members.map(function(m){ return m.username; });
+            var cands = (fd2.friends || []).filter(function(f){ return inGroup.indexOf(f.username) < 0; });
+            showFriendPicker('邀请好友入组', cands, function(un){
+              api('/api/group/member', { token: token, groupId: g.id, username: un }).then(function(){ toast('已添加 @' + un); renderGroupDetail(g.id); })
+                .catch(function(e){ toast(e.message); });
+            });
+          }).catch(function(e){ toast(e.message); });
+        };
+      }
+      app.querySelectorAll('.pk-inv').forEach(function(b){ b.onclick = function(){ inviteFriendToPk(b.getAttribute('data-u')); }; });
+      app.querySelectorAll('.add-fr').forEach(function(b){
+        b.onclick = (function(u){ return function(){
+          api('/api/friend', { token: token, username: u }).then(function(){ toast('已添加 @' + u + ' 为好友 🤝'); renderGroupDetail(gid); })
+            .catch(function(e){ toast(e.message); });
+        }; })(b.getAttribute('data-u'));
+      });
+    }).catch(function(e){ toast(e.message); renderGroups(); });
   }).catch(function(e){ toast(e.message); renderGroups(); });
 }
 
@@ -1675,6 +1692,34 @@ function stuStart(mode, unit, label){
     renderStuQuestion();
   }).catch(function(e){ toast(e.message); renderStudy(); });
 }
+/* ---------- 单词音标（运行时拉取 dictionaryapi.dev，本地缓存） ---------- */
+var IPA_CACHE = {};
+try { IPA_CACHE = JSON.parse(localStorage.getItem('vpk_ipa') || '{}'); } catch (e) { IPA_CACHE = {}; }
+function saveIpaCache(){ try { localStorage.setItem('vpk_ipa', JSON.stringify(IPA_CACHE)); } catch (e) {} }
+function fetchIPA(word, lang, cb){
+  var key = (lang || 'en') + ':' + String(word).toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(IPA_CACHE, key)) { cb(IPA_CACHE[key]); return; }
+  if (lang === 'es') { // dictionaryapi.dev 暂不支持西班牙语，留空
+    IPA_CACHE[key] = null; saveIpaCache(); cb(null); return;
+  }
+  fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word.toLowerCase()))
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      var ipa = null, audio = null;
+      if (d && d[0]) {
+        if (d[0].phonetic) ipa = d[0].phonetic;
+        var phs = d[0].phonetics || [];
+        for (var i = 0; i < phs.length; i++) {
+          if (!ipa && phs[i].text) ipa = phs[i].text;
+          if (!audio && phs[i].audio) audio = phs[i].audio;
+        }
+      }
+      var val = ipa ? { ipa: ipa, audio: audio } : null;
+      IPA_CACHE[key] = val; saveIpaCache(); cb(val);
+    })
+    .catch(function(){ IPA_CACHE[key] = null; saveIpaCache(); cb(null); });
+}
+
 function renderStuQuestion(){
   var s = stu.sess;
   if (!s || s.idx >= s.queue.length) { renderStuSummary(); return; }
@@ -1698,6 +1743,7 @@ function renderStuQuestion(){
     body =
       '<div class="qmeta">第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 看释义，拼写出单词</div>' +
       '<div class="word" id="sqWord" title="点击朗读">' + esc(q.meaning) + '</div>' +
+      '<div class="ipa" id="sqIpa"></div>' +
       '<input class="spell-input" id="sqInput" placeholder="输入 ' + (s.lang === 'es' ? '西语' : '英文') + ' 单词，回车确认" autocomplete="off" autocapitalize="off" spellcheck="false">' +
       '<button class="btn" id="sqSubmit" style="width:100%;margin-top:12px">确认 ✔</button>' +
       '<div id="sqFb"></div>' +
@@ -1706,6 +1752,7 @@ function renderStuQuestion(){
     body =
       '<div class="qmeta">第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 选出这个单词的中文意思</div>' +
       '<div class="word" id="sqWord" title="点击朗读">' + esc(q.word) + '</div>' +
+      '<div class="ipa" id="sqIpa"></div>' +
       '<div class="stu-progress">' + marks + '</div>' +
       '<div class="opts" id="sqOpts">' + (q.options || []).map(function(o, i){
         return '<button class="opt" data-i="' + i + '"><span class="k">' + letters[i] + '</span><span>' + esc(o) + '</span></button>';
@@ -1722,6 +1769,15 @@ function renderStuQuestion(){
   '<div class="wq">' + body + '</div>' +
   '<button class="btn ghost" id="sqKnown" style="width:100%;margin-top:14px">✅ 我认识这个（移入熟词本）</button>';
   $('#sqWord').onclick = function(){ speak(q.word, s.lang); };
+  fetchIPA(q.word, s.lang, function(res){
+    var el = document.getElementById('sqIpa');
+    if (!el || !res) return;
+    if (res.ipa) {
+      el.innerHTML = '<span class="ipa-t">' + esc(res.ipa) + '</span>' + (res.audio ? ' <button class="ipa-audio" id="sqIpaAudio" title="播放原音">🔊</button>' : '');
+      var au = document.getElementById('sqIpaAudio');
+      if (au) au.onclick = function(e){ e.stopPropagation(); try { new Audio(res.audio).play(); } catch (err) { speak(q.word, s.lang); } };
+    }
+  });
   $('#sqQuit').onclick = stuQuit;
   $('#sqKnown').onclick = function(){ stuMarkKnown(q.word); };
   if (spell) {

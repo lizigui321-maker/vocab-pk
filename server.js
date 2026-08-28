@@ -23,19 +23,53 @@ const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE �
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组 */
 const POS_RE = /^(n|v|adj|adv|prep|conj|pron|num|int|art|aux|vt|vi|abbr)\.?\s*/i;
+const POS_ONLY = /^\s*(n|v|adj|adv|prep|conj|pron|num|int|art|aux|vt|vi|abbr)\.?\s*$/i;
+/* 反复剥离开头的词性前缀（处理 "n n." / "aux v" 这类脏数据，避免残留 "n." 混入选项） */
+function stripPos(t) {
+  let s = t;
+  while (true) {
+    const mm = s.match(POS_RE);
+    if (!mm) break;
+    const rest = s.slice(mm[0].length).trim();
+    if (!rest) break;
+    s = rest;
+  }
+  return s;
+}
 function splitMeaning(raw) {
   const segs = String(raw).split(/\s*\/\s*/).map((s) => s.trim()).filter(Boolean);
   const first = segs[0] || '';
   const m = first.match(POS_RE);
   const pos = m ? m[1].toLowerCase() : '';
-  const clean = segs.map((s) => s.replace(POS_RE, '').trim()).filter(Boolean).join(' / ');
+  const cleanSegs = [];
+  for (const s of segs) {
+    const t = stripPos(s);
+    if (!t || POS_ONLY.test(t)) continue; // 去掉纯词性标注的段
+    cleanSegs.push(t);
+  }
+  let clean = cleanSegs.join(' / ');
+  if (!clean) {
+    // 兜底：整串去词性前缀，再滤掉纯词性残段
+    clean = String(raw).replace(new RegExp(POS_RE.source, 'gi'), '')
+      .split(' / ').map((x) => x.trim()).filter((x) => x && !POS_ONLY.test(x)).join(' / ');
+  }
   return { pos, clean: clean || String(raw) };
 }
+/* 释义是否有效：非空且非纯词性标注（"n." / "v" / "aux" 等） */
+function isValidMeaning(m) {
+  if (!m || typeof m !== 'string') return false;
+  const s = String(m).trim();
+  if (!s) return false;
+  if (POS_ONLY.test(s)) return false;
+  return true;
+}
 for (const b of BOOKS) {
-  b._words = b.words.map(([word, meaning]) => {
-    const { pos, clean } = splitMeaning(meaning);
-    return { word, meaning: clean, pos };
-  });
+  b._words = b.words
+    .map(([word, meaning]) => {
+      const { pos, clean } = splitMeaning(meaning);
+      return { word, meaning: clean, pos };
+    })
+    .filter((w) => isValidMeaning(w.meaning)); // 过滤脏数据词条（如 "n n."），避免它们作为题目或干扰项
   b._byPos = new Map();
   for (const w of b._words) {
     if (!b._byPos.has(w.pos)) b._byPos.set(w.pos, []);
@@ -159,7 +193,8 @@ const WORD_TIER = new Map(); // 小写单词 -> 难度层（0=中考最高频 �
       const k = String(word).toLowerCase();
       if (seen.has(k)) continue;
       seen.add(k);
-      if (!tierOf.has(k)) { tierOf.set(k, t); tierWords[t].push({ word, meaning: splitMeaning(meaning).clean }); }
+      const tw = splitMeaning(meaning).clean;
+      if (!tierOf.has(k) && isValidMeaning(tw)) { tierOf.set(k, t); tierWords[t].push({ word, meaning: tw }); }
     }
   }
 }
@@ -348,6 +383,7 @@ function genStudyQuestion(w, book) {
   const distract = [];
   for (const x of shuffle(candidates)) {
     if (seen.has(x.meaning)) continue;
+    if (!isValidMeaning(x.meaning)) continue; // 防御：跳过无效释义（"n." 等脏数据）
     seen.add(x.meaning); distract.push(x.meaning);
     if (distract.length === 3) break;
   }
@@ -482,6 +518,7 @@ function genQuestions(bookId, count) {
     const distract = [];
     for (const x of shuffle(candidates)) {
       if (seen.has(x.meaning)) continue;
+      if (!isValidMeaning(x.meaning)) continue; // 防御：跳过无效释义（"n." 等脏数据）
       seen.add(x.meaning);
       distract.push(x.meaning);
       if (distract.length === 3) break;
@@ -1075,6 +1112,7 @@ const server = http.createServer(async (req, res) => {
           candIdx += 1;
           guard += 1;
           if (seen.has(x.meaning)) continue;
+          if (!isValidMeaning(x.meaning)) continue; // 防御：跳过无效释义（"n." 等脏数据）
           seen.add(x.meaning);
           out.push(x.meaning);
         }

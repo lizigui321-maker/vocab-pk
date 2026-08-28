@@ -174,6 +174,7 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .word{font-size:44px;font-weight:700;letter-spacing:.5px;color:var(--ink);margin:10px 0 6px}
 .meaning{font-size:18px;color:var(--ok);font-weight:700}
 .ipa{font-size:15px;color:var(--sub);margin:2px 0 10px;line-height:1.5;text-align:center;font-family:"Helvetica Neue",Arial,sans-serif}
+.ipa-cell{font-size:12.5px;color:var(--sub);font-style:italic;min-width:64px;flex:none;align-self:center;text-align:left}
 .ipa-t{font-style:italic}
 .ipa-audio{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--brand);font-size:13px;cursor:pointer;vertical-align:middle;margin-left:6px;transition:transform .12s var(--ease)}
 .ipa-audio:active{transform:scale(.9)}
@@ -1217,6 +1218,7 @@ function renderWrongbook(){
         var ts = d2.getFullYear() + '-' + ('0' + (d2.getMonth() + 1)).slice(-2) + '-' + ('0' + d2.getDate()).slice(-2) + ' ' + ('0' + d2.getHours()).slice(-2) + ':' + ('0' + d2.getMinutes()).slice(-2);
         return '<div class="wrow">' +
           '<span class="w" data-w="' + esc(w.word) + '" data-l="' + esc(w.lang || 'en') + '">🔊 ' + esc(w.word) + '</span>' +
+          '<span class="ipa-cell" data-ipa-w="' + esc(w.word) + '" data-ipa-l="' + esc(w.lang || 'en') + '"></span>' +
           '<span class="m">' + esc(w.meaning) + '</span>' +
           '<span class="b">' + esc(w.book || '') + '</span>' +
           '<button class="kw" data-k="' + esc(w.word) + '" data-m="' + esc(w.meaning || '') + '" data-b="' + esc(w.book || '') + '" data-l="' + esc(w.lang || 'en') + '">熟词</button>' +
@@ -1276,6 +1278,7 @@ function renderWrongbook(){
           .catch(function(e){ toast(e.message); });
       };
       $('#backHome').onclick = function(){ page = 'home'; renderHome(); };
+      fillIpaCells(app); // 列表逐词填充音标（本地缓存 + 并发受限异步拉取）
     })
     .catch(function(e){ toast(e.message); page = 'home'; renderHome(); });
 }
@@ -1290,6 +1293,7 @@ function renderKnownbook(){
       var rows = list.length ? list.map(function(w){
         return '<div class="wrow">' +
           '<span class="w" data-w="' + esc(w.word) + '" data-l="' + esc(w.lang || 'en') + '">🔊 ' + esc(w.word) + '</span>' +
+          '<span class="ipa-cell" data-ipa-w="' + esc(w.word) + '" data-ipa-l="' + esc(w.lang || 'en') + '"></span>' +
           '<span class="m">' + esc(w.meaning || '') + '</span>' +
           '<span class="b">' + esc(w.book || '') + '</span>' +
           '<button class="kw" data-k="' + esc(w.word) + '">移回生词</button>' +
@@ -1335,6 +1339,7 @@ function renderKnownbook(){
           .catch(function(e){ toast(e.message); });
       };
       $('#backHome').onclick = function(){ page = 'home'; renderHome(); };
+      fillIpaCells(app); // 列表逐词填充音标（本地缓存 + 并发受限异步拉取）
     })
     .catch(function(e){ toast(e.message); page = 'home'; renderHome(); });
 }
@@ -1720,6 +1725,46 @@ function fetchIPA(word, lang, cb){
     .catch(function(){ IPA_CACHE[key] = null; saveIpaCache(); cb(null); });
 }
 
+/* 打乱学习题选项顺序：正确答案文本恒为 q.meaning，仅改变其在 A/B/C/D 中的位置，
+   使同一词在错题重排再次出现时正确项位置不再固定（避免死记位置而非意思） */
+function shuffleStuOptions(q) {
+  var arr = (q.options || []).map(function(o){ return { o: o, correct: o === q.meaning }; });
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  q.options = arr.map(function(x){ return x.o; });
+  for (var k = 0; k < arr.length; k++) if (arr[k].correct) { q.correctIndex = k; break; }
+}
+
+/* 为列表中的单词异步填充音标（并发受限，避免一次性几百个网络请求被限流）；命中本地缓存的同步填充不递归 */
+function fillIpaCells(scope) {
+  var cells = Array.prototype.slice.call((scope || document).querySelectorAll('.ipa-cell'));
+  var pending = [];
+  for (var i = 0; i < cells.length; i++) {
+    var el = cells[i];
+    var w = el.getAttribute('data-ipa-w'), l = el.getAttribute('data-ipa-l');
+    var key = (l || 'en') + ':' + String(w).toLowerCase();
+    if (l === 'es') continue; // 西语无音标，跳过
+    if (Object.prototype.hasOwnProperty.call(IPA_CACHE, key) && IPA_CACHE[key] && IPA_CACHE[key].ipa) {
+      el.textContent = IPA_CACHE[key].ipa; // 命中缓存：同步填，不递归、不请求
+    } else {
+      pending.push(el);
+    }
+  }
+  var MAX = 8, running = 0, p = 0;
+  function launch() {
+    while (p < pending.length && running < MAX) {
+      var el = pending[p++]; running++;
+      var w = el.getAttribute('data-ipa-w'), l = el.getAttribute('data-ipa-l');
+      fetchIPA(w, l, (function(cell){
+        return function(res){ if (res && res.ipa) cell.textContent = res.ipa; running--; launch(); };
+      })(el));
+    }
+  }
+  launch();
+}
+
 function renderStuQuestion(){
   var s = stu.sess;
   if (!s || s.idx >= s.queue.length) { renderStuSummary(); return; }
@@ -1738,6 +1783,7 @@ function renderStuQuestion(){
   }
   var modeTag = s.mode === 'review' ? '🎯 生词复习' : (s.mode === 'unit' ? '📘 ' + (s.label || '单元练习') : (q.isNew ? '🌱 新词' : '🔁 复习'));
   var spell = stu.inputMode === 'spell';
+  if (!spell && q.options && q.options.length) shuffleStuOptions(q); // 每次渲染重洗牌，正确项位置不固定
   var body;
   if (spell) {
     body =

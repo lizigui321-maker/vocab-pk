@@ -196,34 +196,55 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .sq-tools .ipa{margin:0}
 .wrow .w{cursor:pointer;text-decoration:underline dotted rgba(0,122,255,.45);text-underline-offset:3px}
 .wl-row .w{cursor:pointer;text-decoration:underline dotted rgba(0,122,255,.45);text-underline-offset:3px}
-/* ---------- 单词详解弹窗（底部抽屉） ---------- */
-.wd-overlay{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center;z-index:80;padding:0}
-.wd-sheet{background:var(--card);border-radius:24px 24px 0 0;width:100%;max-width:680px;max-height:86vh;overflow-y:auto;padding:22px 22px 30px;animation:sheetUp .28s var(--ease);box-shadow:0 -8px 40px rgba(0,0,0,.22);border:var(--hair);border-bottom:none;position:relative}
-@keyframes sheetUp{0%{opacity:0;transform:translateY(40px)}100%{opacity:1;transform:none}}
-.wd-grab{width:40px;height:4px;border-radius:99px;background:var(--line);margin:0 auto 16px}
-.wd-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;text-align:center}
-.wd-word{font-size:34px;font-weight:800;color:var(--ink);letter-spacing:.4px}
-.wd-ipa{font-size:16px;color:var(--sub);font-family:"Helvetica Neue",Arial,sans-serif;font-style:italic}
-.wd-acts{display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap}
-.wd-book{margin-top:10px;text-align:center;font-size:12.5px;color:var(--sub)}
-.wd-sec{margin-top:16px}
-.wd-sec h4{font-size:12.5px;color:var(--sub);font-weight:700;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+/* ---------- 单词详解弹窗（居中词典卡片） ---------- */
+.wd-overlay{position:fixed;inset:0;background:rgba(0,0,0,.52);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:80;padding:18px;transition:opacity .18s var(--ease)}
+.wd-sheet{background:var(--card);border-radius:24px;width:100%;max-width:540px;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;animation:wdPop .28s var(--ease);box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 16px rgba(0,0,0,.12);border:var(--hair);position:relative;transition:transform .18s var(--ease),opacity .18s var(--ease)}
+@keyframes wdPop{0%{opacity:0;transform:translateY(18px) scale(.96)}100%{opacity:1;transform:none}}
+.wd-overlay.wd-out{opacity:0}
+.wd-sheet.wd-out{transform:translateY(12px) scale(.97);opacity:0}
+.wd-scroll{overflow-y:auto;padding:22px 22px 6px;-webkit-overflow-scrolling:touch}
+.wd-x{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:50%;border:none;background:rgba(120,120,128,.14);color:var(--sub);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:2;transition:background .15s,transform .12s var(--ease)}
+.wd-x:hover{background:rgba(120,120,128,.28);color:var(--ink)}
+.wd-x:active{transform:scale(.88)}
+.wd-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding-right:44px}
+.wd-word{font-size:38px;font-weight:800;color:var(--ink);letter-spacing:.4px;line-height:1.12}
+.wd-ipa{font-size:15px;color:var(--sub);font-family:"Helvetica Neue",Arial,sans-serif;font-style:italic;line-height:1.5}
+.wd-speakrow{display:flex;align-items:center;gap:10px;margin-top:13px;flex-wrap:wrap}
+.wd-speak{display:inline-flex;align-items:center;gap:7px;border:none;border-radius:999px;padding:8px 16px;font-size:13.5px;font-weight:700;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2));cursor:pointer;box-shadow:0 6px 16px rgba(0,122,255,.30);transition:transform .12s var(--ease)}
+.wd-speak:active{transform:scale(.93)}
+.wd-speak.ghost{background:transparent;border:1.5px solid var(--line);color:var(--brand);box-shadow:none;font-weight:600}
+.wd-book{display:flex;align-items:flex-start;gap:8px;margin-top:14px;padding:10px 14px;border-radius:12px;background:rgba(0,122,255,.08);border:1px solid rgba(0,122,255,.16);font-size:13.5px;color:var(--ink);line-height:1.55}
+.wd-book b{color:var(--brand);font-weight:700}
+.wd-sec{margin-top:18px}
+.wd-sec h4{font-size:12px;color:var(--sub);font-weight:700;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
 .wd-sec h4::after{content:'';flex:1;height:1px;background:var(--line)}
-.wd-sense{background:var(--bg);border-radius:12px;padding:10px 12px;margin-bottom:8px;line-height:1.6}
-.wd-sense .pos{display:inline-block;font-size:11.5px;color:var(--brand);background:rgba(0,122,255,.12);border-radius:6px;padding:1px 8px;margin-right:8px;font-weight:700}
-.wd-sense .df{font-size:14.5px;color:var(--ink)}
-.wd-sense .ex{display:block;font-size:12.5px;color:var(--sub);margin-top:6px;line-height:1.5}
+.wd-sense{background:var(--bg);border-radius:14px;padding:11px 14px;margin-bottom:9px;line-height:1.6;border:1px solid transparent}
+.wd-sense:first-child{border-color:rgba(0,122,255,.22);background:rgba(0,122,255,.05)}
+.wd-sense .pos{display:inline-block;font-size:11.5px;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2));border-radius:7px;padding:2px 9px;margin-right:9px;font-weight:700;vertical-align:2px}
+.wd-sense .df{font-size:15px;color:var(--ink);font-weight:600}
+.wd-sense .ex{display:block;font-size:13px;color:var(--sub);margin-top:7px;line-height:1.55;padding-left:2px}
 .wd-sense .ex b{color:var(--brand);font-weight:600}
-.wd-ph{font-size:13.5px;color:var(--ink);line-height:1.6;padding:6px 0;border-bottom:1px dashed var(--line)}
+.wd-ph{display:flex;gap:10px;align-items:baseline;padding:9px 2px;border-bottom:1px dashed var(--line);font-size:14px}
 .wd-ph:last-child{border-bottom:none}
-.wd-ph b{color:var(--brand)}
+.wd-ph b{color:var(--ink);flex:none}
 .wd-ph .t{color:var(--sub);font-size:12.5px}
-.wd-form{font-size:12.5px;color:var(--sub);line-height:1.7}
-.wd-form b{color:var(--ink)}
-.wd-loading{text-align:center;padding:30px 0;color:var(--sub);font-size:14px}
-.wd-close{position:sticky;bottom:0;margin-top:18px}
-.wd-exam{display:inline-block;font-size:11px;color:#d97706;background:rgba(217,119,6,.12);border-radius:99px;padding:2px 10px;margin:0 4px 4px 0}
+.wd-form{display:flex;flex-wrap:wrap;gap:8px}
+.wd-form span{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12.5px;color:var(--sub)}
+.wd-form b{color:var(--ink);font-weight:700}
+.wd-loading{text-align:center;padding:36px 0;color:var(--sub);font-size:14px;line-height:1.8}
+.wd-exam{display:inline-block;font-size:11px;color:#d97706;background:rgba(217,119,6,.13);border-radius:99px;padding:3px 12px;margin:0 5px 6px 0;font-weight:600}
+.wd-foot{display:flex;align-items:center;gap:10px;padding:14px 22px 16px;border-top:var(--hair);background:var(--card)}
+.wd-foot .btn{margin-top:0}
+.wd-done{flex:1;border:none;background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;font-weight:700;box-shadow:0 6px 16px rgba(0,122,255,.28)}
+@media (max-width:480px){
+  .wd-overlay{padding:12px}
+  .wd-sheet{max-height:92vh;border-radius:20px}
+  .wd-word{font-size:32px}
+  .wd-scroll{padding:18px 18px 4px}
+  .wd-foot{padding:12px 18px 14px}
+}
 [data-theme="dark"] .wd-sense{background:#2c2c2e}
+[data-theme="dark"] .wd-sense:first-child{background:rgba(10,132,255,.10)}
 [data-theme="dark"] .wd-sheet{background:#1c1c1e}
 .listen-btn{
   width:108px;height:108px;border-radius:50%;border:none;cursor:pointer;margin:14px auto;
@@ -1960,33 +1981,62 @@ function fillIpaCells(scope) {
   launch();
 }
 
-/* ---------- 详解弹窗 ---------- */
+/* ---------- 详解弹窗（居中词典卡片） ---------- */
 function wdEscape(s){ return esc(s); }
+var wdActive = null;               // 当前活动弹窗（供 ESC 关闭）
+var wdScrollLock = null;           // 首个弹窗打开前的 body overflow（关闭时恢复）
+function wdOnKey(e){ if (wdActive && e.key === 'Escape') wdActive.close(); }
 function openWordDetail(word, lang, opts){
   opts = opts || {};
   lang = (lang === 'es') ? 'es' : 'en';
   // 重复打开时先收起旧弹窗，避免多个详解叠加
   document.querySelectorAll('.wd-overlay').forEach(function(o){ o.remove(); });
+  if (wdScrollLock === null) {                 // 只在首次锁定时记录原滚动状态
+    wdScrollLock = document.body.style.overflow;
+  }
+  document.body.style.overflow = 'hidden';     // 锁定背景滚动
+  document.removeEventListener('keydown', wdOnKey); // 清理可能残留的旧监听
+  document.addEventListener('keydown', wdOnKey);
   var ov = document.createElement('div');
   ov.className = 'wd-overlay';
-  ov.innerHTML = '<div class="wd-sheet">' +
-    '<div class="wd-grab"></div>' +
-    '<div class="wd-head">' +
-      '<span class="wd-word">' + wdEscape(word) + '</span>' +
-      '<span class="wd-ipa" id="wdIpa"></span>' +
+  ov.innerHTML = '<div class="wd-sheet" role="dialog" aria-modal="true" aria-label="' + wdEscape(word) + ' 详解">' +
+    '<button class="wd-x" id="wdX" aria-label="关闭">✕</button>' +
+    '<div class="wd-scroll">' +
+      '<div class="wd-head">' +
+        '<span class="wd-word">' + wdEscape(word) + '</span>' +
+        '<span class="wd-ipa" id="wdIpa"></span>' +
+      '</div>' +
+      '<div class="wd-speakrow">' +
+        '<button class="wd-speak" id="wdSpeak">🔊 真人发音</button>' +
+        (opts.meaning ? '<button class="wd-speak ghost" id="wdCopy">📋 复制释义</button>' : '') +
+      '</div>' +
+      (opts.meaning ? '<div class="wd-book">📖 <span><b>词书释义：</b>' + wdEscape(opts.meaning) + '</span></div>' : '') +
+      '<div id="wdBody"><div class="wd-loading"><span class="spin" style="border-color:rgba(0,122,255,.3);border-top-color:var(--brand)"></span>正在查询详解…</div></div>' +
     '</div>' +
-    '<div class="wd-acts">' +
-      '<button class="spk-btn" id="wdSpeak">🔊 真人发音</button>' +
-      (opts.meaning ? '<button class="spk-btn ghost" id="wdCopy">📋 复制释义</button>' : '') +
-    '</div>' +
-    (opts.meaning ? '<div class="wd-book">📖 词书释义：' + wdEscape(opts.meaning) + '</div>' : '') +
-    '<div id="wdBody"><div class="wd-loading"><span class="spin" style="border-color:rgba(0,122,255,.3);border-top-color:var(--brand)"></span>正在查询详解…</div></div>' +
-    '<button class="btn ghost wd-close" id="wdClose">我知道了</button>' +
+    '<div class="wd-foot"><button class="btn wd-done" id="wdClose">我知道了</button></div>' +
   '</div>';
   document.body.appendChild(ov);
-  function close(){ ov.remove(); }
+  var closed = false;
+  function close(){
+    if (closed) return;
+    closed = true;
+    wdActive = null;
+    document.removeEventListener('keydown', wdOnKey);
+    ov.classList.add('wd-out');
+    var sh = ov.querySelector('.wd-sheet');
+    if (sh) sh.classList.add('wd-out');
+    setTimeout(function(){
+      if (ov.parentNode) ov.parentNode.removeChild(ov);
+      if (!document.querySelector('.wd-overlay')) {  // 无其他弹窗时才恢复滚动
+        document.body.style.overflow = wdScrollLock || '';
+        wdScrollLock = null;
+      }
+    }, 180);
+  }
+  wdActive = { close: close };
   ov.addEventListener('click', function(e){ if (e.target === ov) close(); });
   ov.querySelector('#wdClose').onclick = close;
+  ov.querySelector('#wdX').onclick = close;
   ov.querySelector('#wdSpeak').onclick = function(){ speak(word, lang); };
   var cp = ov.querySelector('#wdCopy');
   if (cp) cp.onclick = function(){ copyText(opts.meaning, '释义已复制'); };
@@ -2023,7 +2073,7 @@ function openWordDetail(word, lang, opts){
       }).join('') + '</div>';
     }
     if (d.forms && d.forms.length) {
-      html += '<div class="wd-sec"><h4>词形变化</h4><div class="wd-form">' + d.forms.map(function(f){ return wdEscape(f.name) + ' <b>' + wdEscape(f.value) + '</b>　'; }).join('') + '</div></div>';
+      html += '<div class="wd-sec"><h4>词形变化</h4><div class="wd-form">' + d.forms.map(function(f){ return '<span>' + wdEscape(f.name) + ' <b>' + wdEscape(f.value) + '</b></span>'; }).join('') + '</div></div>';
     }
     body.innerHTML = html || '<div class="wd-loading">暂无更多释义</div>';
   });

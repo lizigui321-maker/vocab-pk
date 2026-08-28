@@ -951,7 +951,8 @@ function renderHome(){
           '<div class="feat" id="fVocab"><div class="ic">📊</div><div class="t">词汇量自测</div><div class="d">测测你有多少词</div></div>' +
           '<div class="feat" id="fGroups"><div class="ic">👥</div><div class="t">单词小组</div><div class="d">看看朋友的打卡</div></div>' +
           '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">我的好友</div><div class="d">邀请一起背单词</div></div>' +
-        '</div>';
+        '</div>' +
+        '<div class="footer-tip">Rick + AI</div>';
       $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
       var hr = $('#hReview'); if (hr) hr.onclick = function(){ page = 'study'; stuStart('review'); };
       $('#fPk').onclick = function(){ renderPk(); };

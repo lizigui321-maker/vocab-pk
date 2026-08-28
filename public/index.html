@@ -2194,7 +2194,8 @@ function renderStuQuestion(){
       if (!el || !res || (!res.ipa && !res.ipaUs)) return;
       el.textContent = '/' + (res.ipa || res.ipaUs) + '/';
     });
-    if (q.isNew) autoDetailOnce(q.word, qlang, q.meaning); // 需求 2：首次出现新词弹详解
+    // 注意：新词详解不再在「出题前」弹出（否则等于把答案先给出来，太蠢）；
+    // 改为答完本题后再弹，见 stuPick / stuSpellSubmit。这里只 fetching 音标小提示。
   }
   $('#sqQuit').onclick = stuQuit;
   $('#sqKnown').onclick = function(){ stuMarkKnown(q.word); };
@@ -2236,6 +2237,8 @@ function stuSpellSubmit(){
     : '<div class="sfb bad">😅 拼写有误<small>正确拼写：' + esc(q.word) + '</small>' + fbDetail + '</div>';
   var fbd = $('#sqFbDetail');
   if (fbd) fbd.onclick = function(){ openWordDetail(q.word, qlang, { meaning: q.meaning }); };
+  // 新词：答完本题后再自动弹详解（不再在出题前弹，避免泄题）。延时 350ms 让对错反馈先闪一下。
+  if (q.isNew) setTimeout(function(){ if (stu.sess === s) autoDetailOnce(q.word, qlang, q.meaning); }, 350);
   inp.classList.add(correct ? 'ok' : 'bad');
   s.lock = true;
   s.marks[s.idx] = correct;
@@ -2304,6 +2307,8 @@ function stuPick(choice){
     : '<div class="sfb bad">😅 答错了<small>正确释义：' + esc(q.meaning) + (q._rq <= 2 ? ' · 稍后再考你一次' : '') + '</small>' + fbDetail + '</div>';
   var fbd = $('#sqFbDetail');
   if (fbd) fbd.onclick = function(){ openWordDetail(q.word, qlang, { meaning: q.meaning }); };
+  // 新词：答完本题后再自动弹详解（不再在出题前弹，避免泄题）。延时 350ms 让对错反馈先闪一下。
+  if (q.isNew) setTimeout(function(){ if (stu.sess === s) autoDetailOnce(q.word, qlang, q.meaning); }, 350);
   api('/api/study/answer', { token: token, word: q.word, correct: correct, ms: q._shownAt ? (Date.now() - q._shownAt) : 0, meaning: q.meaning, lang: q.lang || s.lang }, 'POST')
     .then(function(d){
       if (d.removed) toast('「' + q.word + '」已连续答对 5 次，从生词本毕业 🎓');

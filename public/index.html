@@ -2003,6 +2003,7 @@ function fillIpaCells(scope) {
 function wdEscape(s){ return esc(s); }
 var wdActive = null;               // 当前活动弹窗（供 ESC 关闭）
 var wdScrollLock = null;           // 首个弹窗打开前的 body overflow（关闭时恢复）
+var stuPendingSpeak = null;        // 弹窗开着时挂起的「下一题自动发音」，关弹窗后补播，避免声音与卡片错配
 function wdOnKey(e){ if (wdActive && e.key === 'Escape') wdActive.close(); }
 function openWordDetail(word, lang, opts){
   opts = opts || {};
@@ -2048,6 +2049,11 @@ function openWordDetail(word, lang, opts){
       if (!document.querySelector('.wd-overlay')) {  // 无其他弹窗时才恢复滚动
         document.body.style.overflow = wdScrollLock || '';
         wdScrollLock = null;
+        // 弹窗关闭后，若答题时已挂起「下一题自动发音」，在此补播，确保声音与当前题对齐
+        if (stuPendingSpeak) {
+          var ps = stuPendingSpeak; stuPendingSpeak = null;
+          if (stu.view === 'session') speak(ps.word, ps.lang);
+        }
       }
     }, 180);
   }
@@ -2128,7 +2134,12 @@ function renderStuQuestion(){
   var qlang = q.lang || s.lang; // 复习模式可能混入西语生词，按单词自己的语言发音（B9）
   if (stu.lastSpeak !== q.word) {
     stu.lastSpeak = q.word;
-    if (s.autoSpeak) setTimeout(function(){ if (stu.view === 'session') speak(q.word, qlang); }, 350);
+    if (s.autoSpeak) setTimeout(function(){
+      if (stu.view !== 'session') return;
+      // 若上一词详解弹窗仍开着，把当前题发音挂起，等弹窗关闭后再补播，避免声音与卡片错配
+      if (wdActive) { stuPendingSpeak = { word: q.word, lang: qlang }; return; }
+      speak(q.word, qlang);
+    }, 350);
   }
   var letters = ['A', 'B', 'C', 'D'];
   var total = s.queue.length;

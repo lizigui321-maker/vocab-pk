@@ -422,7 +422,7 @@ function studyOverview(acc) {
     plan: st.plan, bookId: book.id, bookName: book.name,
     total: list.length, rawTotal: book.words.length, skipped, unitSize: UNIT_SIZE,
     learned, mastered, due, wrongCount: (acc.words || []).length, knownCount: (acc.known || []).length,
-    today: { new: lg.new, review: lg.review, wrong: lg.wrong, dailyNew: st.plan.dailyNew, newRemaining: Math.max(0, st.plan.dailyNew - lg.new) },
+    today: { new: lg.new, review: lg.review, wrong: lg.wrong, dailyNew: st.plan.dailyNew, newRemaining: Math.max(0, st.plan.dailyNew - lg.new), newPoolRemaining: Math.max(0, list.length - learned) },
     streak: streakOf(st), units, log30,
     books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })).concat(custom),
   };
@@ -1323,7 +1323,10 @@ const server = http.createServer(async (req, res) => {
         const { list } = filterKnown(book, st.plan.vocabEstimate);
         const lg = todayLog(st);
         const newRemaining = Math.max(0, st.plan.dailyNew - lg.new);
-        const news = list.filter((w) => { const pr = st.progress[w.posKey]; return !pr || !pr.n; }).slice(0, newRemaining);
+        // 临时加学：在今日计划新词之外，额外追加 extraNew 个未学新词（前端可反复点击叠加）
+        const extraNew = Math.max(0, Math.min(200, Math.floor(Number(u.searchParams.get('extraNew')) || 0)));
+        const unlearnedAll = list.filter((w) => { const pr = st.progress[w.posKey]; return !pr || !pr.n; });
+        const news = unlearnedAll.slice(0, newRemaining + extraNew);
         const dueList = [];
         for (const [k, pr] of Object.entries(st.progress)) {
           if (!pr || !pr.n || pr.lv <= 0 || pr.lv >= MASTER_LV || !pr.due || pr.due > now) continue;
@@ -1342,7 +1345,7 @@ const server = http.createServer(async (req, res) => {
           if (ri < revItems.length) queue.push(revItems[ri++]);
           if (ni < newsItems.length) queue.push(newsItems[ni++]);
         }
-        extra = { newCount: news.length, reviewCount: reviews.length, dailyNew: st.plan.dailyNew };
+        extra = { newCount: news.length, reviewCount: reviews.length, dailyNew: st.plan.dailyNew, extraNew: extraNew, newPoolRemaining: Math.max(0, unlearnedAll.length - news.length) };
       }
       // 干扰项取自与该词同语言的词书（复习模式可能混入西语生词，避免出现跨语言选项）
       const questions = queue.map((q) => {

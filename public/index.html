@@ -1522,6 +1522,7 @@ function renderStuDash(){
     '</div>' +
     '<button class="btn" id="stuGo">开始学习 ' + (t.newRemaining > 0 || ov.due > 0 ? '📖' : '（复习模式）🔁') + '</button>' +
     '<button class="btn ghost" id="stuReview">🎯 复习生词本（' + ov.wrongCount + '）</button>' +
+    (t.newRemaining === 0 && t.newPoolRemaining > 0 ? '<button class="btn ghost" id="stuExtra">🌱 临时加学20个</button>' : '') +
   '</div>' +
   '<div class="card">' +
     '<div class="wb-head"><span class="wb-count">学习概况</span></div>' +
@@ -1553,6 +1554,7 @@ function renderStuDash(){
   var ss = document.getElementById('stuSet'); if (ss) ss.onclick = function(){ page = 'settings'; renderSettings(); };
   $('#stuGo').onclick = function(){ stuStart('daily'); };
   $('#stuReview').onclick = function(){ stuStart('review'); };
+  var se = document.getElementById('stuExtra'); if (se) se.onclick = function(){ stuStart('daily', null, '临时加学', 20); };
   $('#stuPlanEdit').onclick = function(){ renderStudyPlan(false); };
   $('#goKnown').onclick = function(){ page = 'knownbook'; renderKnownbook(); };
   $('#goCustom').onclick = function(){ renderCustomBooks(); };
@@ -1679,9 +1681,10 @@ function renderStudyPlan(isNew){
   }
 }
 /* ---------- 学习 session ---------- */
-function stuStart(mode, unit, label){
+function stuStart(mode, unit, label, extraNew){
   var url = '/api/study/session?mode=' + mode + '&inputMode=' + encodeURIComponent(stu.inputMode || 'choice');
   if (unit != null) url += '&unit=' + unit;
+  if (extraNew) url += '&extraNew=' + extraNew;
   app.innerHTML = '<h1>📚 背单词</h1><div class="tagline"><span class="spin"></span>出题中…</div>';
   api(url, null, 'GET').then(function(d){
     if (!d.questions || !d.questions.length) {
@@ -1965,13 +1968,30 @@ function renderStuSummary(){
   '</div>' +
   '<div class="card" style="padding:14px">' +
     '<button class="btn" id="ssAgain">再来一轮 🔁</button>' +
+    (s.extra && s.extra.newPoolRemaining > 0 ? '<button class="btn" id="ssExtra">🌱 临时加学20个</button>' : '') +
     '<button class="btn ghost" id="ssHome">返回学习主页</button>' +
   '</div>';
   app.querySelectorAll('.wl-row .w').forEach(function(el){
     el.onclick = function(){ speak(el.getAttribute('data-w') || el.textContent.replace('🔊 ', ''), s.lang); };
   });
   $('#ssAgain').onclick = function(){ stuStart(s.mode, s.unit, s.label); };
+  var sx = document.getElementById('ssExtra'); if (sx) sx.onclick = function(){ stuAddExtra(20); };
   $('#ssHome').onclick = function(){ renderStudy(); };
+}
+/* 临时加学：再拉 extraNew 个未学新词，追加到当前这一轮队列里继续学（可反复点击叠加） */
+function stuAddExtra(n){
+  var s = stu.sess;
+  if (!s) { renderStudy(); return; }
+  var url = '/api/study/session?mode=daily&inputMode=' + encodeURIComponent(stu.inputMode || 'choice') + '&extraNew=' + (n || 20);
+  api(url, null, 'GET').then(function(d){
+    var qs = (d.questions && d.questions.length) ? d.questions.slice() : [];
+    if (!qs.length) { toast('已经没有更多新词可加了 🎉'); return; }
+    s.queue = s.queue.concat(qs);
+    s.extra = d;
+    if (s.label && s.label.indexOf('加学') < 0) s.label = s.label + ' · 加学';
+    stu.view = 'session';
+    renderStuQuestion();
+  }).catch(function(e){ toast(e.message); });
 }
 
 /* ---------- 自定义词书 ---------- */

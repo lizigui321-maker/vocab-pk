@@ -1,9 +1,5 @@
-# 运行时数据（含账号/会话/排行榜，切勿入库）
-store/*.json
-store/public-url.txt
-store/.stop
-store/.watchdog.pid
-store/service.log
+# 运行时数据（含账号/会话/排行榜/备份/快照，切勿入库）
+store/
 
 # 二进制工具（首次运行自动下载）
 bin/cloudflared.exe

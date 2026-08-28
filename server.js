@@ -85,8 +85,34 @@ const RANK_FILE = path.join(STORE, 'vocab-rank.json');
 const ACCOUNTS_FILE = path.join(STORE, 'accounts.json');
 const SESSIONS_FILE = path.join(STORE, 'sessions.json');
 const GROUPS_FILE = path.join(STORE, 'groups.json');
-function loadJSON(f, dflt) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return dflt; } }
-function saveJSON(f, data) { try { fs.writeFileSync(f, JSON.stringify(data), 'utf8'); } catch (e) { console.error('[存储] 保存失败', f, (e && e.message) || e); } }
+/* loadJSON：主文件坏了绝不静默清零——先把坏文件改名留档，再回退 .bak，最后才用默认值（D2） */
+function loadJSON(f, dflt) {
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) {
+    if (e && e.code === 'ENOENT') return dflt;
+    try {
+      const bad = f + '.corrupt-' + Date.now();
+      fs.renameSync(f, bad);
+      console.error('[存储] 数据文件损坏，已留档为 ' + path.basename(bad) + '，尝试回退备份');
+    } catch (e2) {}
+    try { return JSON.parse(fs.readFileSync(f + '.bak', 'utf8')); } catch (e3) { return dflt; }
+  }
+}
+/* saveJSON：原子写（临时文件 + rename），写前把上一份好数据留为 .bak。
+   直接 writeFileSync 在进程被 kill / 磁盘写满时会产生半截 JSON，下次启动 loadJSON 解析失败
+   就等于「所有账号数据凭空消失」；原子写 + 备份让最坏情况只丢失最后一次保存（D2）。 */
+function saveJSON(f, data, replacer) {
+  let str;
+  try { str = JSON.stringify(data, replacer || null); } catch (e) { console.error('[存储] 序列化失败', f, (e && e.message) || e); return; }
+  const tmp = f + '.tmp-' + process.pid;
+  try {
+    fs.writeFileSync(tmp, str, 'utf8');
+    try { if (fs.existsSync(f)) fs.copyFileSync(f, f + '.bak'); } catch (e) {}
+    fs.renameSync(tmp, f);
+  } catch (e) {
+    console.error('[存储] 保存失败', f, (e && e.message) || e);
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (e2) {}
+  }
+}
 
 /* ---- 可选云端持久化（Upstash Redis REST）：解决 Render 免费版每次部署/重启清空本地磁盘、
    导致账号与生词本全部丢失的问题。配置 UPSTASH_REDIS_REST_URL 与 UPSTASH_REDIS_REST_TOKEN
@@ -136,10 +162,17 @@ let vocabRank = loadJSON(RANK_FILE, []);     // [{name, best, latest, count, at}
 let accounts = loadJSON(ACCOUNTS_FILE, {});  // username(小写) -> {username, salt, hash, name, createdAt, words:[{word,meaning,book,at}]}
 let sessions = loadJSON(SESSIONS_FILE, {});  // token -> {username, at}
 let groups = loadJSON(GROUPS_FILE, {});      // groupId -> {id, name, owner, members:[username], code, createdAt}
-function saveAccounts(){ saveJSON(ACCOUNTS_FILE, accounts); kvSave('accounts', accounts); }
+function saveAccounts(){ saveJSON(ACCOUNTS_FILE, accounts, accountsReplacer); kvSave('accounts', accounts); }
 function saveSessions(){ saveJSON(SESSIONS_FILE, sessions); kvSave('sessions', sessions); }
 function saveGroups(){ saveJSON(GROUPS_FILE, groups); kvSave('groups', groups); }
 function saveRank(){ saveJSON(RANK_FILE, vocabRank); kvSave('vocab-rank', vocabRank); }
+/* 序列化账号时剔除运行时字段（__rt 里的 Map / 自定义词书的 _words 缓存等），
+   避免把几 MB 的运行时缓存写进 accounts.json / 云端 KV，也避免反序列化出脏数据（D1） */
+function accountsReplacer(k, v) {
+  if (k === '__rt') return undefined;
+  if (k && typeof k === 'string' && (k === '_words' || k === '_byPos' || k === '_studyOrder')) return undefined;
+  return v;
+}
 /* 启动时：启用云端持久化则以云端数据为准（本地文件在 Render 上部署即被清空）；
    云端为空（首次启用）时把本地现有数据上传，完成无缝迁移。 */
 async function loadStoreFromKV() {
@@ -165,8 +198,30 @@ async function loadStoreFromKV() {
     else if (!kGrp.found && Object.keys(groups).length) { kvSet('groups', groups); migrated = true; }
     if (kRk.found && Array.isArray(kRk.value)) vocabRank = kRk.value;
     else if (!kRk.found && vocabRank.length) { kvSet('vocab-rank', vocabRank); migrated = true; }
-    saveJSON(ACCOUNTS_FILE, accounts); saveJSON(SESSIONS_FILE, sessions); saveJSON(GROUPS_FILE, groups); saveJSON(RANK_FILE, vocabRank);
-    console.log('  存储模式:  Upstash Redis 云端持久化（账号/生词本跨部署不丢失）' + (migrated ? ' · 已完成本地→云端首次迁移' : ''));
+
+    /* S4 自愈：四项里任何一项在云端为空，先尝试用云端「全量快照」补回。
+       场景：某次写入只成功了一半、或有人在 Upstash 控制台误删了某个 key。
+       只有在快照里确实有数据时才回填，绝不拿空数据覆盖已有内容。 */
+    let healed = false;
+    const emptyAcc = !Object.keys(accounts).length;
+    const emptyGrp = !Object.keys(groups).length;
+    if (emptyAcc || emptyGrp) {
+      const full = await kvGet('__full__');
+      if (full.ok && full.found && full.value && typeof full.value === 'object') {
+        const f = full.value;
+        if (emptyAcc && f.accounts && Object.keys(f.accounts).length) { accounts = f.accounts; kvSet('accounts', accounts); healed = true; }
+        if (!Object.keys(groups).length && f.groups && Object.keys(f.groups).length) { groups = f.groups; kvSet('groups', groups); healed = true; }
+        if (!vocabRank.length && Array.isArray(f.vocabRank) && f.vocabRank.length) { vocabRank = f.vocabRank; kvSet('vocab-rank', vocabRank); healed = true; }
+        if (!Object.keys(sessions).length && f.sessions && Object.keys(f.sessions).length) { sessions = f.sessions; kvSet('sessions', sessions); healed = true; }
+      }
+    }
+    /* 本地文件也为空（Render 每次部署清盘）而云端没有账号 → 用本地快照兜底再上传一次 */
+    if (!Object.keys(accounts).length) restoreFromSnapshot();
+
+    saveJSON(ACCOUNTS_FILE, accounts, accountsReplacer); saveJSON(SESSIONS_FILE, sessions); saveJSON(GROUPS_FILE, groups); saveJSON(RANK_FILE, vocabRank);
+    /* 写完再存一份全量快照，作为下次出问题的恢复源 */
+    kvSet('__full__', { accounts: accounts, groups: groups, sessions: sessions, vocabRank: vocabRank, at: Date.now() });
+    console.log('  存储模式:  Upstash Redis 云端持久化（账号/生词本跨部署不丢失）' + (migrated ? ' · 已完成本地→云端首次迁移' : '') + (healed ? ' · 已用云端全量快照自愈' : ''));
     return true;
   } catch (e) {
     kvUsable = false;
@@ -197,11 +252,294 @@ async function kvFlush() {
   } catch (e) { console.error('[KV] 退出前刷新失败', (e && e.message) || e); }
 }
 function gracefulShutdown(sig) {
+  // 退出前先刷新今日快照（此时内存里有最新数据），再 flush 云端写入（D3）
+  try { writeSnapshot(); } catch (e) {}
   // kvFlush 内部自带 3s 总超时，不会因网络慢而卡死进程
   kvFlush().then(() => process.exit(0)).catch(() => process.exit(0));
 }
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+/* beforeExit 兜底：进程正常退出（无 SIGTERM，如脚本结束）时也要把挂起的云端写入落盘 */
+process.on('beforeExit', () => { if (kvUsable && Object.keys(kvTimers).length) kvFlush(); });
+
+/* ================= 单词词典（音标 / 释义 / 例句 / 搭配） =================
+ * 数据来源（服务端拉取，避免浏览器直连被 CORS / 网络策略拦掉）：
+ *   1) 有道词典公开 JSON 接口 —— 国内可直连，含英美音标、分词性释义、变形、短语、双语例句
+ *   2) dictionaryapi.dev —— 海外环境更稳，含标准 IPA 与真人音频，作为补充/兜底
+ * 结果落盘到 store/dict.json 长期缓存（词表有限，命中后几乎零延迟）。
+ */
+const DICT_FILE = path.join(STORE, 'dict.json');
+const DICT_MAX = 3000;                 // 缓存上限，超出后按时间淘汰最早的一半
+let dictCache = loadJSON(DICT_FILE, {});
+if (!dictCache || typeof dictCache !== 'object' || Array.isArray(dictCache)) dictCache = {};
+let dictDirty = false;
+function dictKey(word, lang) { return (lang === 'es' ? 'es' : 'en') + ':' + String(word || '').trim().toLowerCase(); }
+function saveDict() {
+  if (!dictDirty) return;
+  dictDirty = false;
+  const keys = Object.keys(dictCache);
+  if (keys.length > DICT_MAX) {
+    keys.sort((a, b) => (dictCache[a].at || 0) - (dictCache[b].at || 0));
+    for (const k of keys.slice(0, Math.ceil(keys.length / 2))) delete dictCache[k];
+  }
+  saveJSON(DICT_FILE, dictCache);
+}
+function fetchJSON(url, ms) {
+  const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), ms || 5000) : null;
+  return Promise.race([
+    fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36' },
+      signal: ctrl ? ctrl.signal : undefined,
+    }).then((r) => (r.ok ? r.json() : Promise.reject(new Error('http_' + r.status)))),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), (ms || 5000) + 500)),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+/* 去掉有道释义里的 HTML 标签与多余空白 */
+function cleanText(s) {
+  return String(s == null ? '' : s)
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+/* 有道接口里 {l:{i:...}} 的 i 有时是字符串、有时是数组，统一取文本 */
+function iText(l) {
+  if (!l) return '';
+  if (Array.isArray(l.i)) return cleanText(l.i[0] || '');
+  return cleanText(l.i || '');
+}
+/* 释义「详略得当」：按中文分号切成要点，最多保留 max 条，避免一个词性下塞 8 个义项 */
+function shortenDef(def, max) {
+  const s = cleanText(def);
+  const parts = s.split(/[；;]/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length <= (max || 3)) return s;
+  const kept = parts.slice(0, max || 3);
+  return kept.join('；') + ' 等';
+}
+/* 有道 jsonapi → 统一结构（英文主力源） */
+function parseYoudao(d, word) {
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [] };
+  const pushSense = (pos, def) => {
+    if (!def) return;
+    if (out.senses.length >= 4) return;
+    out.senses.push({ pos: pos || '', def: shortenDef(def, out.senses.length === 0 ? 3 : 2).slice(0, 160) });
+  };
+  const ecs = ((d.ec || {}).word) || ((d.simple || {}).word) || [];
+  const w0 = ecs[0];
+  if (w0) {
+    if (w0.ukphone) out.ipaUk = cleanText(w0.ukphone);
+    if (w0.usphone) out.ipaUs = cleanText(w0.usphone);
+    if (w0.ukspeech) out.audioUk = 'https://dict.youdao.com/dictvoice?le=en&type=1&audio=' + encodeURIComponent(String(w0.ukspeech).split('&')[0]);
+    if (w0.usspeech) out.audioUs = 'https://dict.youdao.com/dictvoice?le=en&type=2&audio=' + encodeURIComponent(String(w0.usspeech).split('&')[0]);
+    for (const t of (w0.trs || [])) {
+      const tr0 = (t && Array.isArray(t.tr) && t.tr[0]) || t || {};
+      const line = iText(tr0.l);
+      if (!line) continue;
+      const m = line.match(/^([a-zA-Z]+\.)\s*(.*)$/);
+      if (m) pushSense(m[1], m[2]); else pushSense('', line);
+    }
+    for (const f of (w0.wfs || [])) {
+      const wf = f && f.wf;
+      if (wf && wf.name && wf.value && out.forms.length < 6) out.forms.push({ name: cleanText(wf.name), value: cleanText(wf.value) });
+    }
+  }
+  for (const p of ((d.phrs || {}).phrs || [])) {
+    if (out.phrases.length >= 3) break;
+    const ph = p && p.phr;
+    if (!ph) continue;
+    const head = iText(ph.headword && ph.headword.l);
+    const tr0 = (Array.isArray(ph.trs) && ph.trs[0]) || {};
+    const tr = iText(tr0.tr && tr0.tr.l) || iText(tr0.l);
+    if (head) out.phrases.push({ ph: head, tr: tr });
+  }
+  for (const pair of ((d.blng_sents_part || {})['sentence-pair'] || [])) {
+    if (out.examples.length >= 2) break;
+    const en = cleanText(pair && (pair.sentence || pair['sentence-eng']));
+    const zh = cleanText(pair && pair['sentence-translation']);
+    if (en) out.examples.push({ en: en, zh: zh });
+  }
+  for (const e of ((d.ec || {}).exam_type || [])) {
+    if (out.exams.length >= 4) break;
+    const n = cleanText(e);
+    if (n) out.exams.push(n);
+  }
+  return out;
+}
+/* 有道 suggest → 统一结构（西语等小语种兜底：只有释义，没有音标/例句）
+   注意：suggest 会返回一堆「形近词」（查 hola 会带出 holanda / holandeses），
+   必须只取 entry 与目标词完全相同的那条，否则释义会张冠李戴（B6）。 */
+function parseYoudaoSuggest(d, word) {
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [] };
+  const target = String(word || '').trim().toLowerCase();
+  const ents = ((d || {}).data || {}).entries || [];
+  for (const e of ents) {
+    if (String(e.entry || '').trim().toLowerCase() !== target) continue;
+    const ex = cleanText(e.explain).replace(/~/g, String(word || ''));
+    if (!ex) continue;
+    for (const seg of ex.split(/;|；/)) {
+      const line = cleanText(seg);
+      // 只保留含中文的段：西语词条的解释串里混着 "|→" "m.," 之类的格式噪音
+      if (!line || !/[\u4e00-\u9fff]/.test(line) || out.senses.length >= 2) continue;
+      const m = line.match(/^([a-zA-Z]+\.?)\s*(.*)$/);
+      const rest = m && m[2] ? m[2].replace(/^\d+[.、]\s*/, '').trim() : line; // 剥掉 "1." "2、" 义项编号
+      if (!rest) continue;
+      if (m && /[\u4e00-\u9fff]/.test(rest)) out.senses.push({ pos: m[1], def: rest.slice(0, 160) });
+      else out.senses.push({ pos: '', def: rest.slice(0, 160) });
+    }
+    break;
+  }
+  return out;
+}
+/* 有道 jsonapi(le=es) 的 multle 字典 → 统一结构（西语主力源：完整词性+义项）
+   结构：d.multle.word[0].trs[] = [{tr:[{l:{i:["adj.\\n"]}}]}, {tr:[{l:{i:["1.极坏的…"]}}]}, …]
+   词性行（adj. / m., / f.）与义项行（1.狗，犬）交替出现，~ 是单词代称。 */
+function parseYoudaoMultle(d, word) {
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [] };
+  const w0 = (((d || {}).multle || {}).word || [])[0];
+  if (!w0 || !Array.isArray(w0.trs)) return out;
+  const w = String(word || '');
+  let pos = '';
+  for (const t of w0.trs) {
+    const tr0 = (t && Array.isArray(t.tr) && t.tr[0]) || t || {};
+    let line = iText(tr0.l).replace(/~/g, w).replace(/[\n\r]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!line) continue;
+    if (/^\|/.test(line) || /^→/.test(line)) continue; // "|→ 另见" 等格式噪音
+    const posm = line.match(/^([a-zA-Z]+)[.,]?$/); // 纯词性行：adj. / m., / f.
+    if (posm) { pos = posm[1]; continue; }
+    const nm = line.match(/^(\d+)[.、]\s*(.*)$/);
+    const def = nm ? nm[2].trim() : line;
+    if (!def || !/[\u4e00-\u9fff]/.test(def)) continue; // 只要含中文的义项
+    if (out.senses.length >= 4) break;
+    const posShow = pos === 'm' ? 'n.(阳)' : pos === 'f' ? 'n.(阴)' : pos;
+    out.senses.push({ pos: posShow, def: shortenDef(def, out.senses.length === 0 ? 3 : 2).slice(0, 160) });
+  }
+  return out;
+}
+/* dictionaryapi.dev → 统一结构（海外兜底，提供标准 IPA 与真人音频） */
+function parseDictApi(d, word) {
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [] };
+  if (!Array.isArray(d) || !d[0]) return null;
+  const e = d[0];
+  if (e.phonetic) out.ipa = cleanText(e.phonetic);
+  for (const ph of (e.phonetics || [])) {
+    if (!out.ipa && ph.text) out.ipa = cleanText(ph.text);
+    if (!out.audio && ph.audio) out.audio = String(ph.audio);
+  }
+  for (const m of (e.meanings || [])) {
+    if (out.senses.length >= 4) break;
+    const pos = cleanText(m.partOfSpeech);
+    for (const def of (m.definitions || [])) {
+      if (out.senses.length >= 4) break;
+      if (!def || !def.definition) continue;
+      out.senses.push({ pos: pos, def: cleanText(def.definition).slice(0, 120), en: cleanText(def.example || '').slice(0, 160) });
+    }
+  }
+  if (!out.senses.length) return null;
+  return out;
+}
+function buildDetail(word, lang, parsed, src) {
+  const isEs = lang === 'es';
+  const audio = parsed.audio || parsed.audioUs ||
+    (isEs
+      ? 'https://dict.youdao.com/dictvoice?le=es&audio=' + encodeURIComponent(word)
+      : 'https://dict.youdao.com/dictvoice?le=en&type=2&audio=' + encodeURIComponent(word));
+  const ipa = parsed.ipa || parsed.ipaUs || '';
+  const out = {
+    word: word, lang: isEs ? 'es' : 'en',
+    ipa: ipa,
+    ipaUk: parsed.ipaUk || '', ipaUs: parsed.ipaUs || '',
+    audio: audio,
+    audioUk: parsed.audioUk || '', audioUs: parsed.audioUs || '',
+    senses: parsed.senses || [],
+    forms: parsed.forms || [],
+    phrases: parsed.phrases || [],
+    examples: parsed.examples || [],
+    exams: parsed.exams || [],
+    src: src, at: Date.now(),
+  };
+  return out;
+}
+/* 查询单词详情：本地缓存 → 有道 → dictionaryapi.dev（英文）→ 有道 suggest（西语）
+   并发防护：同一词去重（正在查的直接复用），全局最多同时 4 个外部请求，防刷限流。 */
+const dictInFlight = new Map(); // key -> [promise]
+let dictConcurrent = 0;
+const DICT_MAX_CONCURRENT = 4;
+async function getWordDetail(word, lang) {
+  const key = dictKey(word, lang);
+  const hit = dictCache[key];
+  const NEG_TTL = 30 * 60 * 1000; // 查不到的词 30 分钟内不再重复打网络
+  if (hit && typeof hit === 'object') {
+    if ((hit.senses || []).length) return hit;
+    if (hit.neg && Date.now() - (hit.at || 0) < NEG_TTL) return null;
+  }
+  const w = String(word || '').trim();
+  if (!w) return null;
+  if (dictInFlight.has(key)) return dictInFlight.get(key); // 正在查：复用同一个 Promise
+  const p = _fetchWordDetail(w, key, lang);
+  dictInFlight.set(key, p);
+  p.then(() => dictInFlight.delete(key), () => dictInFlight.delete(key));
+  return p;
+}
+async function _fetchWordDetail(w, key, lang) {
+  const isEs = lang === 'es';
+  const q = encodeURIComponent(w.toLowerCase());
+  try {
+    while (dictConcurrent >= DICT_MAX_CONCURRENT) await new Promise((r) => setTimeout(r, 120));
+    dictConcurrent += 1;
+  } catch (e) { /* 等待被中断也正常返回 */ }
+  try {
+    if (isEs) {
+      // 优先 jsonapi(le=es) 的 multle 完整词典；suggest 仅作兜底（只有模糊释义）
+      const d = await fetchJSON('https://dict.youdao.com/jsonapi?q=' + q + '&le=es&doctype=json', 6000);
+      const p = parseYoudaoMultle(d, w);
+      // multle 质量判定：至少 2 条义项，或带词性标记（hola 之类的词 multle 只有 1 条
+      // 音译「加洛莱」，必须回退 suggest 才拿得到「你好」）
+      const multleOk = p.senses.length >= 2 || p.senses.some((s) => s.pos);
+      if (multleOk) {
+        const out = buildDetail(w, 'es', p, 'youdao');
+        dictCache[key] = out; dictDirty = true; saveDict();
+        return out;
+      }
+      const ds = await fetchJSON('https://dict.youdao.com/suggest?num=5&ver=3.0&doctype=json&le=es&q=' + q, 5000);
+      const ps = parseYoudaoSuggest(ds, w);
+      if (ps.senses.length) {
+        const out = buildDetail(w, 'es', ps, 'youdao-suggest');
+        dictCache[key] = out; dictDirty = true; saveDict();
+        return out;
+      }
+    } else {
+      const d = await fetchJSON('https://dict.youdao.com/jsonapi?q=' + q + '&doctype=json', 6000);
+      const p = parseYoudao(d, w);
+      if (p.senses.length) {
+        // 有道没给音标/音频时，用 dictionaryapi.dev 补齐（不阻塞：拿不到就用有道的发音地址）
+        if (!p.ipaUs && !p.ipa) {
+          try {
+            const d2 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
+            const p2 = parseDictApi(d2, w);
+            if (p2) { if (p2.ipa) p.ipa = p2.ipa; if (p2.audio) p.audio = p2.audio; }
+          } catch (e) { /* 忽略：音标是加分项，不是必需 */ }
+        }
+        const out = buildDetail(w, 'en', p, 'youdao');
+        dictCache[key] = out; dictDirty = true; saveDict();
+        return out;
+      }
+      const d3 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
+      const p3 = parseDictApi(d3, w);
+      if (p3) {
+        const out = buildDetail(w, 'en', p3, 'dictapi');
+        dictCache[key] = out; dictDirty = true; saveDict();
+        return out;
+      }
+    }
+  } catch (e) { /* 网络异常：返回 null，前端降级为只显示词书释义 */ } finally {
+    dictConcurrent -= 1; // 无论成败都要释放并发名额
+  }
+  // 查不到时记一个空结果，避免同一个生僻词被反复联网查询（30 分钟后才允许重试）
+  dictCache[key] = { word: w, lang: isEs ? 'es' : 'en', ipa: '', audio: '', senses: [], forms: [], phrases: [], examples: [], exams: [], src: 'none', neg: true, at: Date.now() };
+  dictDirty = true; saveDict();
+  return null;
+}
+
 function hashPassword(pw, salt){ return crypto.scryptSync(String(pw), salt, 32).toString('hex'); }
 function newSession(username){
   const token = crypto.randomBytes(24).toString('hex');
@@ -456,17 +794,24 @@ function wordInfoOf(word, preferBook) {
   const info = WORD_INFO.get(k);
   return info ? { meaning: info.meaning, bookName: info.bookName, lang: info.lang } : null;
 }
-/* 学习作答：更新进度 + SRS 排期 + 错题写入与 PK 共享的生词本 */
-function studyAnswer(acc, word, correct, ms) {
+/* 学习作答：更新进度 + SRS 排期 + 错题写入与 PK 共享的生词本
+   extra 允许前端补传 {meaning, book, lang}：自定义词书里的词不在全局 WORD_INFO 中，
+   不补传的话答错了也进不了生词本（B2）。字段按字符串截断，不会污染存储。 */
+function studyAnswer(acc, word, correct, ms, extra) {
   const st = getStudy(acc);
   const k = wordKey(word);
-  const info = wordInfoOf(word, resolveBook(acc, st.plan && st.plan.bookId));
+  let info = wordInfoOf(word, resolveBook(acc, st.plan && st.plan.bookId));
+  if (!info && extra && typeof extra === 'object') {
+    const m = typeof extra.meaning === 'string' ? extra.meaning.slice(0, 200) : '';
+    if (m) info = { meaning: m, bookName: (typeof extra.book === 'string' ? extra.book.slice(0, 60) : ''), lang: (extra.lang === 'es' ? 'es' : 'en') };
+  }
   const now = Date.now();
   const lg = todayLog(st);
   let p = st.progress[k];
   const isNew = !p || !p.n;
   if (!p) p = st.progress[k] = { lv: 0, n: 0, c: 0, wrong: 0, due: 0, firstAt: now, lastAt: now };
   p.n += 1; p.lastAt = now;
+  if (info && !p.meaning) p.meaning = info.meaning; // 记住首次收录的释义，供熟词本兜底
   let removed = false;
   let ease = 1;
   if (correct) {
@@ -761,9 +1106,11 @@ function handleAnswer(room, pid, qIndex, choice) {
   if (qIndex !== room.qIndex || room.answered.has(pid)) return;
   const p = room.players.get(pid);
   if (!p) return;
+  const q = room.questions[room.qIndex];
+  // 选项下标必须落在本题选项范围内；伪造的越界值直接拒绝，避免记出「答错」的生词（B3）
+  if (!q || !Number.isInteger(choice) || choice < 0 || choice >= q.options.length) return;
   p.lastSeen = Date.now();
   p.seenInRound = true;
-  const q = room.questions[room.qIndex];
   const now = Date.now();
   const remaining = Math.max(0, room.roundStartedAt + room.roundMs - now);
   let gained = 0;
@@ -779,6 +1126,63 @@ function handleAnswer(room, pid, qIndex, choice) {
   } else {
     broadcast(room);
   }
+}
+
+/* ================= 数据安全：过期会话清理 + 本地每日快照 =================
+ * 目的（需求 3）：版本更新 / 重启 / 部署都不该清空用户数据。
+ *  · 过期会话：sessions 只增不减会让 accounts.json 之外的 sessions.json 无限膨胀，
+ *    定期清理掉 30 天免登录窗口已过期的令牌。
+ *  · 每日快照：把 accounts / groups / sessions / vocabRank 存成 store/snapshot-日期.json，
+ *    保留最近 7 份。未配置云端 KV 时，若主数据文件因故丢失（误删/迁移/磁盘被清），
+ *    启动阶段会自动用最近一份快照恢复，而不是让所有用户「凭空变成新账号」。 */
+function pruneSessions() {
+  const now = Date.now();
+  const LIMIT = 30 * 24 * 3600 * 1000;
+  let n = 0;
+  for (const [tk, s] of Object.entries(sessions)) {
+    if (!s || !s.at || now - s.at > LIMIT) { delete sessions[tk]; n += 1; }
+  }
+  if (n) { saveSessions(); console.log('[存储] 已清理过期会话 ' + n + ' 条'); }
+}
+const SNAP_KEEP = 7;
+function snapshotFile(dateStr) { return path.join(STORE, 'snapshot-' + dateStr + '.json'); }
+function writeSnapshot() {
+  try {
+    const dateStr = dayKey(Date.now());
+    const f = snapshotFile(dateStr);
+    // 同一天直接覆盖：让「今天的快照」最多只有 6 小时延迟，恢复时丢的数据更少
+    const snap = { at: Date.now(), date: dateStr, accounts: accounts, groups: groups, sessions: sessions, vocabRank: vocabRank };
+    saveJSON(f, snap, accountsReplacer);
+    const files = fs.readdirSync(STORE).filter((x) => /^snapshot-\d{4}-\d{2}-\d{2}\.json$/.test(x)).sort();
+    while (files.length > SNAP_KEEP) {
+      const old = files.shift();
+      try { fs.unlinkSync(path.join(STORE, old)); } catch (e) {}
+    }
+    console.log('[存储] 已写入每日快照 ' + dateStr);
+  } catch (e) { console.error('[存储] 快照失败', (e && e.message) || e); }
+}
+/* 启动时：主数据为空但有本地快照 → 自动恢复（仅本地模式有意义；云端模式以 KV 为准） */
+function restoreFromSnapshot() {
+  try {
+    const files = fs.readdirSync(STORE).filter((x) => /^snapshot-\d{4}-\d{2}-\d{2}\.json$/.test(x)).sort();
+    if (!files.length) return false;
+    const snap = loadJSON(path.join(STORE, files[files.length - 1]), null);
+    if (!snap || typeof snap !== 'object') return false;
+    let restored = false;
+    const snapAcc = (snap.accounts && typeof snap.accounts === 'object') ? Object.keys(snap.accounts).length : 0;
+    const snapGrp = (snap.groups && typeof snap.groups === 'object') ? Object.keys(snap.groups).length : 0;
+    if (!Object.keys(accounts).length && snapAcc) { accounts = snap.accounts; restored = true; }
+    if (!Object.keys(groups).length && snapGrp) { groups = snap.groups; restored = true; }
+    // 注意：秩榜是数组，必须判断「快照里有内容」再回填，否则空数组也会误报「已恢复」
+    if (!vocabRank.length && Array.isArray(snap.vocabRank) && snap.vocabRank.length) { vocabRank = snap.vocabRank; restored = true; }
+    if (restored) {
+      saveJSON(ACCOUNTS_FILE, accounts, accountsReplacer);
+      saveJSON(GROUPS_FILE, groups);
+      saveJSON(RANK_FILE, vocabRank);
+      console.log('[存储] ⚠️ 数据文件为空，已从快照 ' + files[files.length - 1] + ' 自动恢复（账号 ' + Object.keys(accounts).length + ' 个）');
+    }
+    return restored;
+  } catch (e) { return false; }
 }
 
 /* 空房间清理 + 房主掉线自动转移（SSE 与轮询玩家都算在线） */
@@ -799,6 +1203,14 @@ setInterval(() => {
     }
   }
 }, 30000);
+
+/* 每 6 小时：清理过期会话 + 写一次每日快照（本地文件模式下的数据保命底牌） */
+setInterval(() => {
+  try { pruneSessions(); writeSnapshot(); } catch (e) {}
+  // 云端模式下同步刷新「全量快照」，让自愈源不至于过旧
+  if (kvUsable) kvSet('__full__', { accounts: accounts, groups: groups, sessions: sessions, vocabRank: vocabRank, at: Date.now() });
+}, 6 * 3600 * 1000);
+setTimeout(() => { try { pruneSessions(); writeSnapshot(); } catch (e) {} }, 30000);
 
 /* ---------------- HTTP 服务 ---------------- */
 const MIME = {
@@ -825,6 +1237,8 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   const u = new URL(req.url, 'http://localhost');
   const p = u.pathname;
   try {
@@ -1161,7 +1575,12 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const room = rooms.get(b.roomId);
       if (!room) return send(res, 404, { error: '房间不存在' });
-      handleAnswer(room, b.playerId, Number(b.qIndex), Number(b.choice));
+      // 校验房号与玩家号匹配，避免任何人拿到 roomId 就能替别人答题（B4）
+      const pl0 = room.players.get(String(b.playerId || ''));
+      if (!pl0) return send(res, 403, { error: '你不在该房间' });
+      const qi = Number(b.qIndex), ci = Number(b.choice);
+      if (!Number.isInteger(qi) || !Number.isInteger(ci)) return send(res, 400, { error: '参数不合法' });
+      handleAnswer(room, pl0.id, qi, ci);
       return send(res, 200, { ok: true });
     }
     if (req.method === 'POST' && p === '/api/replay') {
@@ -1192,6 +1611,17 @@ const server = http.createServer(async (req, res) => {
       }
       saveAccounts();
       return send(res, 200, { ok: true, count: acc.words.length });
+    }
+    /* 单词详情：音标 / 分词性释义 / 例句 / 搭配（服务端拉取并长期缓存，前端不再直连第三方） */
+    if (req.method === 'GET' && p === '/api/word') {
+      const acc = authUser(tokenOf(req, u));
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      const w = String(u.searchParams.get('w') || '').trim().slice(0, 64);
+      if (!w) return send(res, 400, { error: '缺少单词' });
+      const lang = u.searchParams.get('lang') === 'es' ? 'es' : 'en';
+      const d = await getWordDetail(w, lang);
+      if (!d) return send(res, 200, { ok: false, word: w, lang: lang });
+      return send(res, 200, Object.assign({ ok: true }, d));
     }
     if (req.method === 'GET' && p === '/api/vocabtest/questions') {
       const questions = [];
@@ -1350,7 +1780,11 @@ const server = http.createServer(async (req, res) => {
       // 干扰项取自与该词同语言的词书（复习模式可能混入西语生词，避免出现跨语言选项）
       const questions = queue.map((q) => {
         const srcBook = (q.lang && q.lang !== book.lang && BOOKS.find((b) => b.lang === q.lang)) || book;
-        return Object.assign(genStudyQuestion(q, srcBook), { isNew: q.isNew !== false && !!q.isNew, lang: srcBook.lang });
+        // isNew：按学习进度判断（从未答过的词 = 新词），供前端「首次出现弹详解」使用。
+        // 生词本复习模式强制 false —— 那些词本来就是答错过的，不该再当新词弹窗。
+        const pr = st.progress[wordKey(q.word)];
+        const isNew = mode === 'review' ? false : (!pr || !pr.n);
+        return Object.assign(genStudyQuestion(q, srcBook), { isNew: isNew, lang: srcBook.lang });
       });
       return send(res, 200, Object.assign({ mode, questions, bookName: book.name, lang: book.lang, plan: st.plan }, extra));
     }
@@ -1359,7 +1793,8 @@ const server = http.createServer(async (req, res) => {
       const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
       if (!b.word) return send(res, 400, { error: '缺少单词' });
-      return send(res, 200, studyAnswer(acc, b.word, !!b.correct, b.ms));
+      const ms = Number(b.ms);
+      return send(res, 200, studyAnswer(acc, String(b.word).slice(0, 64), !!b.correct, (isFinite(ms) && ms >= 0) ? ms : 0, b));
     }
     if (req.method === 'POST' && p === '/api/study/reset') {
       const b = await readBody(req);
@@ -1463,6 +1898,7 @@ const server = http.createServer(async (req, res) => {
       if (!acc) return send(res, 401, { error: '请先登录' });
       const id = u.searchParams.get('id') || '';
       acc.customBooks = (acc.customBooks || []).filter((x) => x.id !== id);
+      if (acc.__rt) acc.__rt.delete(id); // 清掉运行时缓存，否则删除后仍能出题（B5）
       const st = getStudy(acc);
       if (st.plan && st.plan.bookId === id) st.plan = null;
       saveAccounts();
@@ -1531,6 +1967,11 @@ const server = http.createServer(async (req, res) => {
 
 /* 启动：若配置了云端持久化，先从云端拉取数据再对外服务，避免用空数据响应 */
 loadStoreFromKV().then(() => {
+  if (!kvUsable) {
+    // 纯本地文件模式：主数据丢了就用最近的每日快照恢复，避免「更新一次版本，账号全没了」
+    restoreFromSnapshot();
+    writeSnapshot();
+  }
   server.listen(PORT, '0.0.0.0', () => {
   const onCloud = process.env.RENDER || process.env.RAILWAY || process.env.KOYEB || process.env.VERCEL || process.env.PORT;
   const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.KOYEB_APP_PUBLIC_DOMAIN || '';
@@ -1552,5 +1993,17 @@ loadStoreFromKV().then(() => {
     console.log('  · 公网玩家请通过隧道地址访问（start-online.bat）');
   }
   console.log('====================================');
+  });
+  // 端口被占用 / 无权限监听时给出人话提示，而不是抛一堆栈后默默退出
+  server.on('error', function (e) {
+    if (e && e.code === 'EADDRINUSE') {
+      console.error('\n[启动失败] 端口 ' + PORT + ' 已被占用。');
+      console.error('  · 可能已经有一个服务在跑了，直接用它就行；');
+      console.error('  · 或者用 set PORT=3400 && node server.js 换个端口；');
+      console.error('  · Windows 上可用 netstat -ano | findstr :' + PORT + ' 找到占用进程。\n');
+    } else {
+      console.error('[启动失败]', (e && e.message) || e);
+    }
+    process.exit(1);
   });
 });

@@ -175,7 +175,8 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .schip.me{border-color:var(--brand);background:rgba(0,122,255,.07);box-shadow:0 0 0 2px rgba(0,122,255,.18)}
 .rankchip b{color:#d97706;font-size:14px}
 .qwrap{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px 20px;text-align:center;position:relative;overflow:hidden;border:var(--hair)}
-.qmeta{font-size:13px;color:var(--sub);margin-bottom:8px}
+.qmeta{font-size:13px;color:var(--sub);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.qmeta .sq-prev{flex:none;margin-left:auto}
 .word{font-size:44px;font-weight:700;letter-spacing:.5px;color:var(--ink);margin:10px 0 6px}
 .meaning{font-size:18px;color:var(--ok);font-weight:700}
 .ipa{font-size:15px;color:var(--sub);margin:2px 0 10px;line-height:1.5;text-align:center;font-family:"Helvetica Neue",Arial,sans-serif}
@@ -183,6 +184,47 @@ input[type=text]:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 
 .ipa-t{font-style:italic}
 .ipa-audio{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--brand);font-size:13px;cursor:pointer;vertical-align:middle;margin-left:6px;transition:transform .12s var(--ease)}
 .ipa-audio:active{transform:scale(.9)}
+/* ---------- 小喇叭 / 详解按钮（学习题与单词列表通用） ---------- */
+.spk-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:6px 14px;font-size:13.5px;color:var(--brand);cursor:pointer;font-weight:600;transition:transform .12s var(--ease),border-color .12s var(--ease)}
+.spk-btn:active{transform:scale(.92)}
+.spk-btn:hover{border-color:var(--brand)}
+.spk-btn.sm{padding:4px 10px;font-size:13px;min-width:34px}
+.spk-btn.sm.ic{font-size:14px;padding:5px 8px}
+.spk-btn.ghost{background:transparent;border-color:var(--line);color:var(--sub)}
+.spk-btn.ghost:hover{border-color:var(--brand);color:var(--brand)}
+.sq-tools{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 12px;flex-wrap:wrap}
+.sq-tools .ipa{margin:0}
+.wrow .w{cursor:pointer;text-decoration:underline dotted rgba(0,122,255,.45);text-underline-offset:3px}
+.wl-row .w{cursor:pointer;text-decoration:underline dotted rgba(0,122,255,.45);text-underline-offset:3px}
+/* ---------- 单词详解弹窗（底部抽屉） ---------- */
+.wd-overlay{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center;z-index:80;padding:0}
+.wd-sheet{background:var(--card);border-radius:24px 24px 0 0;width:100%;max-width:680px;max-height:86vh;overflow-y:auto;padding:22px 22px 30px;animation:sheetUp .28s var(--ease);box-shadow:0 -8px 40px rgba(0,0,0,.22);border:var(--hair);border-bottom:none;position:relative}
+@keyframes sheetUp{0%{opacity:0;transform:translateY(40px)}100%{opacity:1;transform:none}}
+.wd-grab{width:40px;height:4px;border-radius:99px;background:var(--line);margin:0 auto 16px}
+.wd-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;text-align:center}
+.wd-word{font-size:34px;font-weight:800;color:var(--ink);letter-spacing:.4px}
+.wd-ipa{font-size:16px;color:var(--sub);font-family:"Helvetica Neue",Arial,sans-serif;font-style:italic}
+.wd-acts{display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap}
+.wd-book{margin-top:10px;text-align:center;font-size:12.5px;color:var(--sub)}
+.wd-sec{margin-top:16px}
+.wd-sec h4{font-size:12.5px;color:var(--sub);font-weight:700;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.wd-sec h4::after{content:'';flex:1;height:1px;background:var(--line)}
+.wd-sense{background:var(--bg);border-radius:12px;padding:10px 12px;margin-bottom:8px;line-height:1.6}
+.wd-sense .pos{display:inline-block;font-size:11.5px;color:var(--brand);background:rgba(0,122,255,.12);border-radius:6px;padding:1px 8px;margin-right:8px;font-weight:700}
+.wd-sense .df{font-size:14.5px;color:var(--ink)}
+.wd-sense .ex{display:block;font-size:12.5px;color:var(--sub);margin-top:6px;line-height:1.5}
+.wd-sense .ex b{color:var(--brand);font-weight:600}
+.wd-ph{font-size:13.5px;color:var(--ink);line-height:1.6;padding:6px 0;border-bottom:1px dashed var(--line)}
+.wd-ph:last-child{border-bottom:none}
+.wd-ph b{color:var(--brand)}
+.wd-ph .t{color:var(--sub);font-size:12.5px}
+.wd-form{font-size:12.5px;color:var(--sub);line-height:1.7}
+.wd-form b{color:var(--ink)}
+.wd-loading{text-align:center;padding:30px 0;color:var(--sub);font-size:14px}
+.wd-close{position:sticky;bottom:0;margin-top:18px}
+.wd-exam{display:inline-block;font-size:11px;color:#d97706;background:rgba(217,119,6,.12);border-radius:99px;padding:2px 10px;margin:0 4px 4px 0}
+[data-theme="dark"] .wd-sense{background:#2c2c2e}
+[data-theme="dark"] .wd-sheet{background:#1c1c1e}
 .listen-btn{
   width:108px;height:108px;border-radius:50%;border:none;cursor:pointer;margin:14px auto;
   background:var(--brand);color:#fff;font-size:42px;
@@ -537,62 +579,121 @@ function api(path, body, method){
     });
   });
 }
-/* ---------- 发音：优先浏览器 TTS，无语音包/不支持时自动回退在线 MP3（适配安卓自带浏览器） ---------- */
+/* ---------- 发音：真人发音优先，系统语音兜底（v2 引擎） ----------
+ * 目标（需求 1）：点击小喇叭听到的是「真人/自然」读音，而不是机械电子音。
+ * 策略：
+ *   · 真人发音模式（默认）：有道真人录音 → Google 神经语音 → 浏览器 TTS（只挑自然音色）→ 任意音色
+ *   · 系统语音模式（设置里可切，适合离线环境）：浏览器 TTS（自然音色优先）→ 有道 → Google
+ *   · 有道词书接口 type=2 是真人美音录音、type=1 是英音录音，国内可直接访问；
+ *     Google 是神经语音（海外快），两者任一失败都自动降级，不会干等。
+ */
 var _voices = [];
 function _refreshVoices(){ try { if ('speechSynthesis' in window) { var v = speechSynthesis.getVoices(); if (v && v.length) _voices = v; } } catch (e) {} }
 _refreshVoices();
 if ('speechSynthesis' in window) { speechSynthesis.onvoiceschanged = _refreshVoices; }
-var _ttsBroken = false;   // 浏览器 TTS 已确认不可用 → 之后直接走 MP3
+/* 发音引擎偏好：human = 真人优先（默认）；system = 系统语音优先 */
+function _ttsMode(){ return localStorage.getItem('vpk_tts_mode') === 'system' ? 'system' : 'human'; }
+function setTtsMode(m){ try { localStorage.setItem('vpk_tts_mode', m === 'system' ? 'system' : 'human'); } catch (e) {} }
+/* 自然音色白名单：能配到这些音色就用它们，配不到宁可走 MP3 也不立即用机械音 */
+var _VOICE_GOOD = /google|natural|neural|aria|jenny|guy|samantha|karen|daniel|moira|tessa|serena|sonia|libby|ryan|emma|brian|molly|oliver|fiona|alex|premium|enhanced|novel|onnx/i;
+var _VOICE_BAD = /espeak|ivona|david|zira|harry|donna|mark/i;
+function _pickVoice(lang, goodOnly){
+  var want = (lang === 'es') ? /^es(-|_)/i : /^en(-|_)US/i;
+  var loose = (lang === 'es') ? /^es/i : /^en/i;
+  var good = null, loose2 = null, any = null;
+  for (var i = 0; i < _voices.length; i++) {
+    var v = _voices[i];
+    if (!loose.test(v.lang || '')) continue;
+    var nice = !_VOICE_BAD.test(v.name || '') && _VOICE_GOOD.test(v.name || '');
+    if (want.test(v.lang)) { if (nice) return v; if (!good) good = v; }
+    if (nice && !loose2) loose2 = v;
+    if (!any) any = v;
+  }
+  if (good) return good;
+  if (goodOnly) return null;      // 只要自然音色：宁可去 MP3
+  return loose2 || any || null;
+}
 var _audioEl = null;
 function _getAudio(){ if (!_audioEl) { _audioEl = new Audio(); _audioEl.preload = 'auto'; } return _audioEl; }
 function _mp3Urls(word, lang){
   var q = encodeURIComponent(word);
-  var tl = (lang === 'es') ? 'es' : 'en';
-  var urls = ['https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&total=1&idx=0&textlen=64&tl=' + tl + '&q=' + q];
-  if (lang !== 'es') urls.push('https://dict.youdao.com/dictvoice?le=en&type=2&audio=' + q);
+  var urls = [];
+  if (lang === 'es') {
+    urls.push('https://dict.youdao.com/dictvoice?le=es&audio=' + q); // 有道西语真人
+    urls.push('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&total=1&idx=0&textlen=' + word.length + '&tl=es&q=' + q);
+  } else {
+    urls.push('https://dict.youdao.com/dictvoice?le=en&type=2&audio=' + q); // 有道真人美音
+    urls.push('https://dict.youdao.com/dictvoice?le=en&type=1&audio=' + q); // 有道真人英音
+    urls.push('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&total=1&idx=0&textlen=' + word.length + '&tl=en&q=' + q);
+  }
   return urls;
 }
-function _playMp3(word, lang){
-  var urls = _mp3Urls(word, lang);
+function _playMp3(url, cb){
   var a = _getAudio();
-  var i = 0;
-  function tryNext(){
-    if (i >= urls.length) { toast('当前浏览器发音受限，点 🔊 可重试，或换 Chrome/Edge'); return; }
-    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
-    a.src = urls[i++];
-    var p = a.play();
-    if (p && p.catch) p.catch(function(){ tryNext(); });
-    a.onerror = function(){ tryNext(); };
-  }
-  tryNext();
+  try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+  var done = false;
+  function finish(ok){ if (done) return; done = true; clearTimeout(playTmr); clearTimeout(hangTmr); a.onerror = null; if (cb) cb(ok); }
+  a.onerror = function(){ finish(false); };
+  a.src = url;
+  var p = a.play();
+  if (p && p.catch) p.catch(function(){ finish(false); });
+  // 已开始出声（currentTime 前进 / 缓冲就绪）即算成功；否则等 error 或 4 秒超时降级
+  var playTmr = setTimeout(function(){ if (a.currentTime > 0.05 || (a.readyState >= 2)) finish(true); }, 600);
+  var hangTmr = setTimeout(function(){ finish(false); }, 4000);
+}
+/* 浏览器 TTS：优先自然音色；goodOnly=true 时没有自然音色直接放弃（转 MP3） */
+function _speakTTS(word, lang, goodOnly, cb){
+  if (!('speechSynthesis' in window)) { if (cb) cb(false); return; }
+  _refreshVoices();
+  if (!_voices.length) { if (cb) cb(false); return; }
+  var v = _pickVoice(lang, goodOnly);
+  if (!v) { if (cb) cb(false); return; }
+  var finished = false;
+  function finish(ok){ if (finished) return; finished = true; clearTimeout(tmr); if (cb) cb(ok); }
+  try {
+    var u = new SpeechSynthesisUtterance(word);
+    u.lang = (lang === 'es') ? 'es-ES' : 'en-US';
+    u.rate = 0.85;
+    u.voice = v;
+    u.onstart = function(){ finish(true); };
+    u.onerror = function(){ finish(false); };
+    try { if (speechSynthesis.paused) speechSynthesis.resume(); } catch (e) {}
+    speechSynthesis.cancel();
+    // Chrome 的 cancel 后立即 speak 有时会静默丢弃，稍等一帧再放
+    setTimeout(function(){
+      if (finished) return;
+      try { speechSynthesis.speak(u); } catch (e) { finish(false); }
+    }, 60);
+    var tmr = setTimeout(function(){ finish(false); }, 3000); // 3 秒没出声视为失败
+  } catch (e) { finish(false); }
 }
 function speak(word, lang){
   lang = (lang === 'es') ? 'es' : 'en';
   word = String(word || '').trim();
   if (!word) return;
-  // 1) 浏览器 TTS：有语音包才用（小米/华为/vivo 等自带浏览器常无语音包，speak 会静默失败）
-  try {
-    if (!_ttsBroken && 'speechSynthesis' in window) {
-      _refreshVoices();
-      if (_voices.length) {
-        var u = new SpeechSynthesisUtterance(word);
-        u.lang = (lang === 'es') ? 'es-ES' : 'en-US';
-        u.rate = 0.85;
-        var want = (lang === 'es') ? /^es(-|_)/i : /^en(-|_)US/i;
-        var loose = (lang === 'es') ? /^es/i : /^en/i;
-        var v = null;
-        for (var i = 0; i < _voices.length; i++) if (want.test(_voices[i].lang)) { v = _voices[i]; break; }
-        if (!v) for (var j = 0; j < _voices.length; j++) if (loose.test(_voices[j].lang)) { v = _voices[j]; break; }
-        if (v) u.voice = v;
-        u.onerror = function(){ _ttsBroken = true; _playMp3(word, lang); };
-        speechSynthesis.cancel();
-        speechSynthesis.speak(u);
-        return;
-      }
-    }
-  } catch (e) { _ttsBroken = true; }
-  // 2) 回退：在线 TTS MP3（Google，支持英/西；失败再试有道）
-  _playMp3(word, lang);
+  var urls = _mp3Urls(word, lang).filter(Boolean);
+  var steps;
+  if (_ttsMode() === 'system') {
+    steps = [
+      function(cb){ _speakTTS(word, lang, true, cb); },
+      function(cb){ _speakTTS(word, lang, false, cb); },
+    ].concat(urls.map(function(u){
+      return function(cb){ _playMp3(u, cb); };
+    }));
+  } else {
+    steps = urls.map(function(u){
+      return function(cb){ _playMp3(u, cb); };
+    }).concat([
+      function(cb){ _speakTTS(word, lang, true, cb); },
+      function(cb){ _speakTTS(word, lang, false, cb); },
+    ]);
+  }
+  var i = 0;
+  (function tryNext(){
+    if (i >= steps.length) { toast('当前网络发音受限，点 🔊 可重试'); return; }
+    var step = steps[i++];
+    step(function(ok){ if (!ok) tryNext(); });
+  })();
 }
 /* 首次用户手势时解锁 <audio>，绕过安卓自带浏览器的自动播放限制 */
 document.addEventListener('pointerdown', function _unlockAudio(){
@@ -876,6 +977,11 @@ function renderSettings(){
         '<div class="switch' + (dk ? ' on' : '') + '" id="setDark"><span>🌙 深色模式</span><span class="sw"></span></div>' +
       '</div>' +
       '<div class="card">' +
+        '<div class="wb-head"><span class="wb-count">🔊 发音</span></div>' +
+        '<div class="switch' + (_ttsMode() !== 'system' ? ' on' : '') + '" id="setTts"><span>真人发音优先（有道真人录音 · 神经语音）</span><span class="sw"></span></div>' +
+        '<div class="hint">开启：小喇叭播真人/自然发音，没有网络时自动用系统语音；<br>关闭：优先使用设备自带语音（离线可用，但音色取决于设备）。</div>' +
+      '</div>' +
+      '<div class="card">' +
         '<div class="wb-head"><span class="wb-count">👤 账号</span></div>' +
         '<label class="fl">昵称（游戏中显示，最多 12 字）</label>' +
         '<input type="text" id="setNick" maxlength="12" value="' + esc(account ? account.name : '') + '">' +
@@ -931,6 +1037,13 @@ function renderSettings(){
       };
       var sd = $('#setDark');
       sd.onclick = function(){ toggleTheme(); var now = document.documentElement.getAttribute('data-theme') === 'dark'; sd.classList.toggle('on', now); };
+      var ttsSw = $('#setTts');
+      if (ttsSw) ttsSw.onclick = function(){
+        var m = _ttsMode() === 'system' ? 'human' : 'system';
+        setTtsMode(m);
+        this.classList.toggle('on', m === 'human');
+        toast(m === 'human' ? '已切换为真人发音优先' : '已切换为系统语音优先');
+      };
       $('#setNickSave').onclick = function(){
         var nn = $('#setNick').value.trim().slice(0, 12);
         if (!nn) { toast('昵称不能为空'); return; }
@@ -1224,7 +1337,8 @@ function renderWrongbook(){
         var d2 = new Date(w.at);
         var ts = d2.getFullYear() + '-' + ('0' + (d2.getMonth() + 1)).slice(-2) + '-' + ('0' + d2.getDate()).slice(-2) + ' ' + ('0' + d2.getHours()).slice(-2) + ':' + ('0' + d2.getMinutes()).slice(-2);
         return '<div class="wrow">' +
-          '<span class="w" data-w="' + esc(w.word) + '" data-l="' + esc(w.lang || 'en') + '">🔊 ' + esc(w.word) + '</span>' +
+          '<button class="spk-btn sm ic" data-spk="' + esc(w.word) + '" data-spkl="' + esc(w.lang || 'en') + '" title="真人发音">🔊</button>' +
+          '<span class="w" data-dw="' + esc(w.word) + '" data-dl="' + esc(w.lang || 'en') + '" title="点击查看详解">' + esc(w.word) + '</span>' +
           '<span class="ipa-cell" data-ipa-w="' + esc(w.word) + '" data-ipa-l="' + esc(w.lang || 'en') + '"></span>' +
           '<span class="m">' + esc(w.meaning) + '</span>' +
           '<span class="b">' + esc(w.book || '') + '</span>' +
@@ -1244,7 +1358,7 @@ function renderWrongbook(){
           '</span>' +
         '</div>' +
         rows +
-        (wrongList.length ? '<div class="hint">🎯 复习采用间隔重复：连续答对 5 次的词会自动「毕业」移出生词本。</div>' : '') +
+        (wrongList.length ? '<div class="hint">🔊 点小喇叭听真人发音 · 点单词看详解（音标/例句/搭配）<br>🎯 复习采用间隔重复：连续答对 5 次的词会自动「毕业」移出生词本。</div>' : '') +
       '</div>' +
       '<div class="card" style="padding:14px"><button class="btn ghost" id="backHome">返回首页</button></div>';
       app.querySelectorAll('.wrow .del').forEach(function(b){
@@ -1255,8 +1369,11 @@ function renderWrongbook(){
             .catch(function(e){ toast(e.message); });
         };
       });
-      app.querySelectorAll('.wrow .w').forEach(function(el){
-        el.onclick = function(){ speak(el.getAttribute('data-w'), el.getAttribute('data-l')); };
+      app.querySelectorAll('.wrow [data-spk]').forEach(function(el){
+        el.onclick = function(){ speak(el.getAttribute('data-spk'), el.getAttribute('data-spkl')); };
+      });
+      app.querySelectorAll('.wrow [data-dw]').forEach(function(el){
+        el.onclick = function(){ openWordDetail(el.getAttribute('data-dw'), el.getAttribute('data-dl')); };
       });
       app.querySelectorAll('.wrow .kw').forEach(function(b){
         b.onclick = function(){
@@ -1299,7 +1416,8 @@ function renderKnownbook(){
       var list = d.words || [];
       var rows = list.length ? list.map(function(w){
         return '<div class="wrow">' +
-          '<span class="w" data-w="' + esc(w.word) + '" data-l="' + esc(w.lang || 'en') + '">🔊 ' + esc(w.word) + '</span>' +
+          '<button class="spk-btn sm ic" data-spk="' + esc(w.word) + '" data-spkl="' + esc(w.lang || 'en') + '" title="真人发音">🔊</button>' +
+          '<span class="w" data-dw="' + esc(w.word) + '" data-dl="' + esc(w.lang || 'en') + '" title="点击查看详解">' + esc(w.word) + '</span>' +
           '<span class="ipa-cell" data-ipa-w="' + esc(w.word) + '" data-ipa-l="' + esc(w.lang || 'en') + '"></span>' +
           '<span class="m">' + esc(w.meaning || '') + '</span>' +
           '<span class="b">' + esc(w.book || '') + '</span>' +
@@ -1317,8 +1435,11 @@ function renderKnownbook(){
         rows +
       '</div>' +
       '<div class="card" style="padding:14px"><button class="btn ghost" id="backHome">返回首页</button></div>';
-      app.querySelectorAll('.wrow .w').forEach(function(el){
-        el.onclick = function(){ speak(el.getAttribute('data-w'), el.getAttribute('data-l')); };
+      app.querySelectorAll('.wrow [data-spk]').forEach(function(el){
+        el.onclick = function(){ speak(el.getAttribute('data-spk'), el.getAttribute('data-spkl')); };
+      });
+      app.querySelectorAll('.wrow [data-dw]').forEach(function(el){
+        el.onclick = function(){ openWordDetail(el.getAttribute('data-dw'), el.getAttribute('data-dl')); };
       });
       app.querySelectorAll('.wrow .kw').forEach(function(b){
         b.onclick = function(){
@@ -1732,50 +1853,84 @@ function stuStart(mode, unit, label, extraNew){
       autoSpeak: d.plan && d.plan.autoSpeak !== false, extra: d, lock: false, startedAt: Date.now(),
       lang: d.lang === 'es' ? 'es' : 'en',
     };
+    stu.lastSpeak = ''; // 新会话重置，避免上一会话最后的词不自动朗读
     stu.view = 'session';
     renderStuQuestion();
   }).catch(function(e){ toast(e.message); renderStudy(); });
 }
-/* ---------- 单词音标（运行时拉取 dictionaryapi.dev，本地缓存） ---------- */
-var IPA_CACHE = {};
-try { IPA_CACHE = JSON.parse(localStorage.getItem('vpk_ipa') || '{}'); } catch (e) { IPA_CACHE = {}; }
-function saveIpaCache(){ try { localStorage.setItem('vpk_ipa', JSON.stringify(IPA_CACHE)); } catch (e) {} }
+/* ---------- 单词详解：音标 / 释义 / 例句 / 搭配（需求 1 & 2） ----------
+ * 数据优先走服务端 /api/word（有道词典，落盘长期缓存，国内可直连）；
+ * 服务端查不到时浏览器直连 dictionaryapi.dev 兜底。结果存 localStorage 复用。
+ * 同一个缓存同时服务「音标小标签」与「详解弹窗」，避免重复请求。
+ */
+var DETAIL_CACHE = {};
+try { DETAIL_CACHE = JSON.parse(localStorage.getItem('vpk_detail') || '{}'); } catch (e) { DETAIL_CACHE = {}; }
+function detailKey(word, lang){ return (lang === 'es' ? 'es' : 'en') + ':' + String(word || '').trim().toLowerCase(); }
+function saveDetailCache(){ try { localStorage.setItem('vpk_detail', JSON.stringify(DETAIL_CACHE)); } catch (e) {} }
+function pruneDetailCache(){
+  var keys = Object.keys(DETAIL_CACHE);
+  if (keys.length <= 1200) return;
+  // 淘汰最早的，避免 localStorage 撑爆
+  keys.sort(function(a, b){ return (DETAIL_CACHE[a] && DETAIL_CACHE[a].at || 0) - (DETAIL_CACHE[b] && DETAIL_CACHE[b].at || 0); });
+  for (var i = 0; i < keys.length - 800; i++) delete DETAIL_CACHE[keys[i]];
+}
+/* 直连 dictionaryapi.dev 的解析（与 server.js parseDictApi 保持一致的降级路径） */
+function parseDictApiLocal(dd, word){
+  if (!Array.isArray(dd) || !dd[0]) return null;
+  var e = dd[0], out = { word: word, lang: 'en', ipa: '', ipaUk: '', ipaUs: '', audio: '', senses: [], forms: [], phrases: [], examples: [], exams: [], src: 'dictapi', at: Date.now() };
+  if (e.phonetic) out.ipa = String(e.phonetic);
+  for (var i = 0; i < (e.phonetics || []).length; i++) {
+    var ph = e.phonetics[i];
+    if (!out.ipa && ph.text) out.ipa = String(ph.text);
+    if (!out.audio && ph.audio) out.audio = String(ph.audio);
+  }
+  for (var j = 0; j < (e.meanings || []).length && out.senses.length < 4; j++) {
+    var m = e.meanings[j], pos = String(m.partOfSpeech || '');
+    for (var k = 0; k < (m.definitions || []).length && out.senses.length < 4; k++) {
+      var def = m.definitions[k];
+      if (!def || !def.definition) continue;
+      out.senses.push({ pos: pos, def: String(def.definition).slice(0, 160), en: String(def.example || '').slice(0, 180) });
+    }
+  }
+  return out.senses.length ? out : null;
+}
+var _detailInflight = {}; // word:lang -> Promise，去重进行中的请求（PK 对战每帧重渲染会重复触发）
+function fetchDetail(word, lang, cb){
+  var key = detailKey(word, lang);
+  if (Object.prototype.hasOwnProperty.call(DETAIL_CACHE, key)) {
+    var hit = DETAIL_CACHE[key];
+    if (hit) { hit.at = Date.now(); return cb(hit); }
+    return cb(null);
+  }
+  if (_detailInflight[key]) {
+    // 已有进行中的请求：等它完成后统一从缓存取结果，避免重复打网络/重复回调
+    _detailInflight[key].then(function(){
+      var v = DETAIL_CACHE[key];
+      cb(v && v.senses ? v : null);
+    });
+    return;
+  }
+  var done = false;
+  function finish(val){ if (done) return; done = true; delete _detailInflight[key]; if (val) { val.at = Date.now(); DETAIL_CACHE[key] = val; } else { DETAIL_CACHE[key] = null; } pruneDetailCache(); saveDetailCache(); cb(val); }
+  var pr = api('/api/word?w=' + encodeURIComponent(String(word || '').trim()) + '&lang=' + (lang === 'es' ? 'es' : 'en'), null, 'GET')
+    .then(function(d){ if (d && d.ok && d.senses && d.senses.length) { finish(d); return null; } return tryDirect(); })
+    .catch(function(){ return tryDirect(); });
+  _detailInflight[key] = pr;
+  function tryDirect(){
+    if (lang === 'es') { finish(null); return null; }
+    return fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(String(word || '').toLowerCase()))
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(dd){ finish(parseDictApiLocal(dd, word)); })
+      .catch(function(){ finish(null); });
+  }
+}
+/* 兼容旧调用：只需要音标/音频小标签 */
 function fetchIPA(word, lang, cb){
-  var key = (lang || 'en') + ':' + String(word).toLowerCase();
-  if (Object.prototype.hasOwnProperty.call(IPA_CACHE, key)) { cb(IPA_CACHE[key]); return; }
-  if (lang === 'es') { // dictionaryapi.dev 暂不支持西班牙语，留空
-    IPA_CACHE[key] = null; saveIpaCache(); cb(null); return;
-  }
-  fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word.toLowerCase()))
-    .then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(d){
-      var ipa = null, audio = null;
-      if (d && d[0]) {
-        if (d[0].phonetic) ipa = d[0].phonetic;
-        var phs = d[0].phonetics || [];
-        for (var i = 0; i < phs.length; i++) {
-          if (!ipa && phs[i].text) ipa = phs[i].text;
-          if (!audio && phs[i].audio) audio = phs[i].audio;
-        }
-      }
-      var val = ipa ? { ipa: ipa, audio: audio } : null;
-      IPA_CACHE[key] = val; saveIpaCache(); cb(val);
-    })
-    .catch(function(){ IPA_CACHE[key] = null; saveIpaCache(); cb(null); });
+  fetchDetail(word, lang, function(d){
+    if (!d || (!d.ipa && !d.ipaUs && !d.audio)) { cb(null); return; }
+    cb({ ipa: d.ipa || d.ipaUs || '', audio: d.audio || '' });
+  });
 }
-
-/* 打乱学习题选项顺序：正确答案文本恒为 q.meaning，仅改变其在 A/B/C/D 中的位置，
-   使同一词在错题重排再次出现时正确项位置不再固定（避免死记位置而非意思） */
-function shuffleStuOptions(q) {
-  var arr = (q.options || []).map(function(o){ return { o: o, correct: o === q.meaning }; });
-  for (var i = arr.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
-  }
-  q.options = arr.map(function(x){ return x.o; });
-  for (var k = 0; k < arr.length; k++) if (arr[k].correct) { q.correctIndex = k; break; }
-}
-
 /* 为列表中的单词异步填充音标（并发受限，避免一次性几百个网络请求被限流）；命中本地缓存的同步填充不递归 */
 function fillIpaCells(scope) {
   var cells = Array.prototype.slice.call((scope || document).querySelectorAll('.ipa-cell'));
@@ -1783,10 +1938,11 @@ function fillIpaCells(scope) {
   for (var i = 0; i < cells.length; i++) {
     var el = cells[i];
     var w = el.getAttribute('data-ipa-w'), l = el.getAttribute('data-ipa-l');
-    var key = (l || 'en') + ':' + String(w).toLowerCase();
-    if (l === 'es') continue; // 西语无音标，跳过
-    if (Object.prototype.hasOwnProperty.call(IPA_CACHE, key) && IPA_CACHE[key] && IPA_CACHE[key].ipa) {
-      el.textContent = IPA_CACHE[key].ipa; // 命中缓存：同步填，不递归、不请求
+    var key = detailKey(w, l);
+    if (l === 'es') continue; // 西语暂无音标，跳过
+    var hit = DETAIL_CACHE[key];
+    if (hit && (hit.ipa || hit.ipaUs)) {
+      el.textContent = hit.ipa || hit.ipaUs; // 命中缓存：同步填，不递归、不请求
     } else {
       pending.push(el);
     }
@@ -1804,14 +1960,107 @@ function fillIpaCells(scope) {
   launch();
 }
 
+/* ---------- 详解弹窗 ---------- */
+function wdEscape(s){ return esc(s); }
+function openWordDetail(word, lang, opts){
+  opts = opts || {};
+  lang = (lang === 'es') ? 'es' : 'en';
+  // 重复打开时先收起旧弹窗，避免多个详解叠加
+  document.querySelectorAll('.wd-overlay').forEach(function(o){ o.remove(); });
+  var ov = document.createElement('div');
+  ov.className = 'wd-overlay';
+  ov.innerHTML = '<div class="wd-sheet">' +
+    '<div class="wd-grab"></div>' +
+    '<div class="wd-head">' +
+      '<span class="wd-word">' + wdEscape(word) + '</span>' +
+      '<span class="wd-ipa" id="wdIpa"></span>' +
+    '</div>' +
+    '<div class="wd-acts">' +
+      '<button class="spk-btn" id="wdSpeak">🔊 真人发音</button>' +
+      (opts.meaning ? '<button class="spk-btn ghost" id="wdCopy">📋 复制释义</button>' : '') +
+    '</div>' +
+    (opts.meaning ? '<div class="wd-book">📖 词书释义：' + wdEscape(opts.meaning) + '</div>' : '') +
+    '<div id="wdBody"><div class="wd-loading"><span class="spin" style="border-color:rgba(0,122,255,.3);border-top-color:var(--brand)"></span>正在查询详解…</div></div>' +
+    '<button class="btn ghost wd-close" id="wdClose">我知道了</button>' +
+  '</div>';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  ov.addEventListener('click', function(e){ if (e.target === ov) close(); });
+  ov.querySelector('#wdClose').onclick = close;
+  ov.querySelector('#wdSpeak').onclick = function(){ speak(word, lang); };
+  var cp = ov.querySelector('#wdCopy');
+  if (cp) cp.onclick = function(){ copyText(opts.meaning, '释义已复制'); };
+  var ipaEl = ov.querySelector('#wdIpa');
+  fetchDetail(word, lang, function(d){
+    if (!document.body.contains(ov)) return;
+    if (ipaEl) {
+      var ipaTxt = (d && (d.ipa || d.ipaUs)) ? '/' + (d.ipa || d.ipaUs) + '/' : '';
+      if (d && d.ipaUk && d.ipaUk !== (d.ipa || d.ipaUs)) ipaTxt += '　英 /' + d.ipaUk + '/';
+      if (ipaTxt) ipaEl.textContent = ipaTxt;
+    }
+    var body = ov.querySelector('#wdBody');
+    if (!body) return;
+    if (!d || !d.senses || !d.senses.length) {
+      body.innerHTML = '<div class="wd-loading">没有找到更详细的词典释义，以上为词书释义。<br>（网络不可达时音标可能缺失）</div>';
+      return;
+    }
+    var html = '';
+    if (d.exams && d.exams.length) html += '<div style="text-align:center;margin-top:6px">' + d.exams.map(function(x){ return '<span class="wd-exam">' + wdEscape(x) + '</span>'; }).join('') + '</div>';
+    if (d.senses.length) {
+      html += '<div class="wd-sec"><h4>释 义</h4>' + d.senses.map(function(s){
+        return '<div class="wd-sense"><span class="pos">' + wdEscape(s.pos || '词') + '</span><span class="df">' + wdEscape(s.def) + '</span>' +
+          (s.en ? '<span class="ex">例：' + wdEscape(s.en) + '</span>' : '') + '</div>';
+      }).join('') + '</div>';
+    }
+    if (d.phrases && d.phrases.length) {
+      html += '<div class="wd-sec"><h4>常用搭配</h4>' + d.phrases.map(function(p){
+        return '<div class="wd-ph"><b>' + wdEscape(p.ph) + '</b>' + (p.tr ? ' <span class="t">' + wdEscape(p.tr) + '</span>' : '') + '</div>';
+      }).join('') + '</div>';
+    }
+    if (d.examples && d.examples.length) {
+      html += '<div class="wd-sec"><h4>例句</h4>' + d.examples.map(function(x){
+        return '<div class="wd-sense"><span class="df">' + wdEscape(x.en) + '</span>' + (x.zh ? '<span class="ex">' + wdEscape(x.zh) + '</span>' : '') + '</div>';
+      }).join('') + '</div>';
+    }
+    if (d.forms && d.forms.length) {
+      html += '<div class="wd-sec"><h4>词形变化</h4><div class="wd-form">' + d.forms.map(function(f){ return wdEscape(f.name) + ' <b>' + wdEscape(f.value) + '</b>　'; }).join('') + '</div></div>';
+    }
+    body.innerHTML = html || '<div class="wd-loading">暂无更多释义</div>';
+  });
+  return ov;
+}
+/* 学习中新词首次出现的自动详解：每个词只自动弹一次（按当前账号 localStorage 记录） */
+var wdAutoShown = {};
+function autoDetailOnce(word, lang, meaning){
+  if (!word) return;
+  var key = detailKey(word, lang);
+  if (wdAutoShown[key] || localStorage.getItem('vpk_wd_' + key)) return;
+  wdAutoShown[key] = true;
+  try { localStorage.setItem('vpk_wd_' + key, '1'); } catch (e) {}
+  openWordDetail(word, lang, { meaning: meaning });
+}
+
+/* 打乱学习题选项顺序：正确答案文本恒为 q.meaning，仅改变其在 A/B/C/D 中的位置，
+   使同一词在错题重排再次出现时正确项位置不再固定（避免死记位置而非意思） */
+function shuffleStuOptions(q) {
+  var arr = (q.options || []).map(function(o){ return { o: o, correct: o === q.meaning }; });
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  q.options = arr.map(function(x){ return x.o; });
+  for (var k = 0; k < arr.length; k++) if (arr[k].correct) { q.correctIndex = k; break; }
+}
+
 function renderStuQuestion(){
   var s = stu.sess;
   if (!s || s.idx >= s.queue.length) { renderStuSummary(); return; }
   var q = s.queue[s.idx];
   q._shownAt = Date.now(); // 记录题目展示时间，用于答题速度感知 SRS
+  var qlang = q.lang || s.lang; // 复习模式可能混入西语生词，按单词自己的语言发音（B9）
   if (stu.lastSpeak !== q.word) {
     stu.lastSpeak = q.word;
-    if (s.autoSpeak) setTimeout(function(){ if (stu.view === 'session') speak(q.word, s.lang); }, 350);
+    if (s.autoSpeak) setTimeout(function(){ if (stu.view === 'session') speak(q.word, qlang); }, 350);
   }
   var letters = ['A', 'B', 'C', 'D'];
   var total = s.queue.length;
@@ -1822,28 +2071,37 @@ function renderStuQuestion(){
   }
   var modeTag = s.mode === 'review' ? '🎯 生词复习' : (s.mode === 'unit' ? '📘 ' + (s.label || '单元练习') : (q.isNew ? '🌱 新词' : '🔁 复习'));
   var spell = stu.inputMode === 'spell';
+  // 需求 5：答题后（无论对错）可随时看本题详解；进入下一题后也可回看上一个词的详解
+  var prevBtn = (s.idx > 0)
+    ? '<button class="spk-btn ghost sm sq-prev" id="sqPrevDetail" title="回看上一题词的详解">⬅ 上一词详解</button>'
+    : '';
   if (!spell && q.options && q.options.length) shuffleStuOptions(q); // 每次渲染重洗牌，正确项位置不固定
   var body;
   if (spell) {
+    // 拼写模式：只给释义，绝不显示/朗读答案单词的音标（否则等于泄题，B7）
     body =
-      '<div class="qmeta">第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 看释义，拼写出单词</div>' +
-      '<div class="word" id="sqWord" title="点击朗读">' + esc(q.meaning) + '</div>' +
-      '<div class="ipa" id="sqIpa"></div>' +
+      '<div class="qmeta"><span>第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 看释义，拼写出单词</span>' + prevBtn + '</div>' +
+      '<div class="word" id="sqMeaning" style="cursor:default">' + esc(q.meaning) + '</div>' +
+      '<div class="sq-tools"><button class="spk-btn" id="sqHear" title="听发音帮助回忆">🔊 听发音</button></div>' +
       '<input class="spell-input" id="sqInput" placeholder="输入 ' + (s.lang === 'es' ? '西语' : '英文') + ' 单词，回车确认" autocomplete="off" autocapitalize="off" spellcheck="false">' +
       '<button class="btn" id="sqSubmit" style="width:100%;margin-top:12px">确认 ✔</button>' +
       '<div id="sqFb"></div>' +
-      '<div class="hint" style="margin-top:12px">⌨️ 输入后按 Enter 确认 · 点上方释义可朗读该词 · 拼错会记入生词本</div>';
+      '<div class="hint" style="margin-top:12px">⌨️ 输入后按 Enter 确认 · 拼错会记入生词本 · 卡住了可以点「听发音」</div>';
   } else {
     body =
-      '<div class="qmeta">第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 选出这个单词的中文意思</div>' +
-      '<div class="word" id="sqWord" title="点击朗读">' + esc(q.word) + '</div>' +
-      '<div class="ipa" id="sqIpa"></div>' +
+      '<div class="qmeta"><span>第 ' + (s.idx + 1) + ' / ' + total + ' 题 · 选出这个单词的中文意思</span>' + prevBtn + '</div>' +
+      '<div class="word" id="sqWord" title="点击查看详解">' + esc(q.word) + '</div>' +
+      '<div class="sq-tools">' +
+        '<button class="spk-btn" id="sqSpeak" title="真人发音">🔊 发音</button>' +
+        '<button class="spk-btn ghost" id="sqDetail" title="查看详解">📖 详解</button>' +
+        '<span class="ipa" id="sqIpa"></span>' +
+      '</div>' +
       '<div class="stu-progress">' + marks + '</div>' +
       '<div class="opts" id="sqOpts">' + (q.options || []).map(function(o, i){
         return '<button class="opt" data-i="' + i + '"><span class="k">' + letters[i] + '</span><span>' + esc(o) + '</span></button>';
       }).join('') + '</div>' +
       '<div id="sqFb"></div>' +
-      '<div class="hint" style="margin-top:12px">⌨️ 键盘 1-4 也可作答 · 点单词可朗读 · 答错的词稍后会自动再出一次</div>';
+      '<div class="hint" style="margin-top:12px">⌨️ 键盘 1-4 也可作答 · 🔊 真人发音，📖 详解 · 答错的词稍后会自动再出一次</div>';
   }
   app.innerHTML =
   '<div class="topbar" style="justify-content:space-between">' +
@@ -1853,18 +2111,31 @@ function renderStuQuestion(){
   '</div>' +
   '<div class="wq">' + body + '</div>' +
   '<button class="btn ghost" id="sqKnown" style="width:100%;margin-top:14px">✅ 我认识这个（移入熟词本）</button>';
-  $('#sqWord').onclick = function(){ speak(q.word, s.lang); };
-  fetchIPA(q.word, s.lang, function(res){
-    var el = document.getElementById('sqIpa');
-    if (!el || !res) return;
-    if (res.ipa) {
-      el.innerHTML = '<span class="ipa-t">' + esc(res.ipa) + '</span>' + (res.audio ? ' <button class="ipa-audio" id="sqIpaAudio" title="播放原音">🔊</button>' : '');
-      var au = document.getElementById('sqIpaAudio');
-      if (au) au.onclick = function(e){ e.stopPropagation(); try { new Audio(res.audio).play(); } catch (err) { speak(q.word, s.lang); } };
-    }
-  });
+  var wEl = $('#sqWord');
+  if (wEl) wEl.onclick = function(){ openWordDetail(q.word, qlang, { meaning: q.meaning }); };
+  var spk = $('#sqSpeak');
+  if (spk) spk.onclick = function(){ speak(q.word, qlang); };
+  var dtl = $('#sqDetail');
+  if (dtl) dtl.onclick = function(){ openWordDetail(q.word, qlang, { meaning: q.meaning }); };
+  if (!spell) {
+    fetchDetail(q.word, qlang, function(res){
+      // 竞态防护：异步返回时若已跳到别的题，绝不往当前 DOM 里填错词的音标（B8）
+      var s2 = stu.sess;
+      if (!s2 || s2.queue[s2.idx] !== q) return;
+      var el = document.getElementById('sqIpa');
+      if (!el || !res || (!res.ipa && !res.ipaUs)) return;
+      el.textContent = '/' + (res.ipa || res.ipaUs) + '/';
+    });
+    if (q.isNew) autoDetailOnce(q.word, qlang, q.meaning); // 需求 2：首次出现新词弹详解
+  }
   $('#sqQuit').onclick = stuQuit;
   $('#sqKnown').onclick = function(){ stuMarkKnown(q.word); };
+  // 上一词详解：可回看上一题的词（无论上一题对错）
+  var pd = $('#sqPrevDetail');
+  if (pd) pd.onclick = function(){
+    var pq = s.queue[s.idx - 1];
+    if (pq) openWordDetail(pq.word, pq.lang || s.lang, { meaning: pq.meaning });
+  };
   if (spell) {
     var inp = $('#sqInput');
     if (inp) {
@@ -1872,6 +2143,9 @@ function renderStuQuestion(){
       inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); stuSpellSubmit(); } });
     }
     var sb = $('#sqSubmit'); if (sb) sb.onclick = stuSpellSubmit;
+    // 拼写模式单独提供「听发音」帮助按钮（点击才出声，不算泄题——本来就允许回忆）
+    var hb = $('#sqHear');
+    if (hb) hb.onclick = function(){ speak(q.word, qlang); };
   } else {
     app.querySelectorAll('#sqOpts .opt').forEach(function(btn){
       btn.onclick = function(){ stuPick(+btn.getAttribute('data-i')); };
@@ -1882,22 +2156,26 @@ function renderStuQuestion(){
 function stuSpellSubmit(){
   var s = stu.sess; if (!s || s.lock) return;
   var q = s.queue[s.idx]; if (!q) return;
+  var qlang = q.lang || s.lang;
   var inp = $('#sqInput'); if (!inp) return;
   var val = inp.value.trim().toLowerCase();
   if (!val) { toast('请先输入单词'); return; }
   var correct = val === String(q.word).trim().toLowerCase();
   var fb = $('#sqFb');
+  var fbDetail = '<button class="spk-btn ghost sm" id="sqFbDetail" style="margin-top:8px">📖 本题详解</button>';
   if (fb) fb.innerHTML = correct
-    ? '<div class="sfb ok">🎉 拼写正确！</div>'
-    : '<div class="sfb bad">😅 拼写有误<small>正确拼写：' + esc(q.word) + '</small></div>';
+    ? '<div class="sfb ok">🎉 拼写正确！' + fbDetail + '</div>'
+    : '<div class="sfb bad">😅 拼写有误<small>正确拼写：' + esc(q.word) + '</small>' + fbDetail + '</div>';
+  var fbd = $('#sqFbDetail');
+  if (fbd) fbd.onclick = function(){ openWordDetail(q.word, qlang, { meaning: q.meaning }); };
   inp.classList.add(correct ? 'ok' : 'bad');
   s.lock = true;
   s.marks[s.idx] = correct;
   if (correct) s.right += 1; else s.wrong += 1;
   if (!correct) {
-    if (!s.wrongWords.some(function(w){ return w.word === q.word; })) s.wrongWords.push({ word: q.word, meaning: q.meaning, my: val });
+    if (!s.wrongWords.some(function(w){ return w.word === q.word; })) s.wrongWords.push({ word: q.word, meaning: q.meaning, my: val, lang: q.lang || s.lang });
   }
-  api('/api/study/answer', { token: token, word: q.word, correct: correct, ms: q._shownAt ? (Date.now() - q._shownAt) : 0 }, 'POST')
+  api('/api/study/answer', { token: token, word: q.word, correct: correct, ms: q._shownAt ? (Date.now() - q._shownAt) : 0, meaning: q.meaning, lang: q.lang || s.lang }, 'POST')
     .then(function(d){ if (d.mastered && !d.removed) toast('「' + q.word + '」已达到掌握等级 🎓'); })
     .catch(function(){});
   setTimeout(function(){
@@ -1911,9 +2189,10 @@ function stuSpellSubmit(){
 /* 标记为已会：直接移入熟词本并跳过本题 */
 function stuMarkKnown(word){
   var s = stu.sess; if (!s || s.lock) return;
+  var q = s.queue[s.idx];
   s.lock = true;
   s.marks[s.idx] = true;
-  api('/api/study/markKnown', { token: token, word: word }, 'POST')
+  api('/api/study/markKnown', { token: token, word: word, meaning: q && q.meaning, lang: q && (q.lang || s.lang) }, 'POST')
     .then(function(){
       toast('已移入熟词本 📗');
       s.lock = false;
@@ -1928,6 +2207,7 @@ function stuPick(choice){
   if (!s || s.lock) return;
   var q = s.queue[s.idx];
   if (!q) return;
+  var qlang = q.lang || s.lang;
   s.lock = true;
   var correct = choice === q.correctIndex;
   var letters = ['A', 'B', 'C', 'D'];
@@ -1940,7 +2220,7 @@ function stuPick(choice){
   s.marks[s.idx] = correct;
   if (correct) s.right += 1; else s.wrong += 1;
   if (!correct) {
-    if (!s.wrongWords.some(function(w){ return w.word === q.word; })) s.wrongWords.push({ word: q.word, meaning: q.meaning, my: q.options[choice] });
+    if (!s.wrongWords.some(function(w){ return w.word === q.word; })) s.wrongWords.push({ word: q.word, meaning: q.meaning, my: q.options[choice], lang: q.lang || s.lang });
     // 答错重排：3 题之后（或最后）再考一次，最多重排 2 次
     q._rq = (q._rq || 0) + 1;
     if (q._rq <= 2) {
@@ -1949,10 +2229,14 @@ function stuPick(choice){
     }
   }
   var fb = $('#sqFb');
+  // 需求 5：无论对错，反馈区都提供「本题详解」按钮
+  var fbDetail = '<button class="spk-btn ghost sm" id="sqFbDetail" style="margin-top:8px">📖 本题详解</button>';
   if (fb) fb.innerHTML = correct
-    ? '<div class="sfb ok">🎉 答对了！<small>' + esc(q.word) + ' · ' + esc(q.meaning) + '</small></div>'
-    : '<div class="sfb bad">😅 答错了<small>正确释义：' + esc(q.meaning) + (q._rq <= 2 ? ' · 稍后再考你一次' : '') + '</small></div>';
-  api('/api/study/answer', { token: token, word: q.word, correct: correct, ms: q._shownAt ? (Date.now() - q._shownAt) : 0 }, 'POST')
+    ? '<div class="sfb ok">🎉 答对了！<small>' + esc(q.word) + ' · ' + esc(q.meaning) + '</small>' + fbDetail + '</div>'
+    : '<div class="sfb bad">😅 答错了<small>正确释义：' + esc(q.meaning) + (q._rq <= 2 ? ' · 稍后再考你一次' : '') + '</small>' + fbDetail + '</div>';
+  var fbd = $('#sqFbDetail');
+  if (fbd) fbd.onclick = function(){ openWordDetail(q.word, qlang, { meaning: q.meaning }); };
+  api('/api/study/answer', { token: token, word: q.word, correct: correct, ms: q._shownAt ? (Date.now() - q._shownAt) : 0, meaning: q.meaning, lang: q.lang || s.lang }, 'POST')
     .then(function(d){
       if (d.removed) toast('「' + q.word + '」已连续答对 5 次，从生词本毕业 🎓');
       if (d.mastered && !d.removed) toast('「' + q.word + '」已达到掌握等级 🎓');
@@ -1981,7 +2265,10 @@ function renderStuSummary(){
   var acc = total ? Math.round(s.right / total * 100) : 0;
   var mins = Math.max(1, Math.round((Date.now() - s.startedAt) / 60000));
   var wrongHtml = s.wrongWords.length ? s.wrongWords.map(function(w){
-    return '<div class="wl-row"><span class="w" data-w="' + esc(w.word) + '">🔊 ' + esc(w.word) + '</span>' +
+    var wl = w.lang || s.lang;
+    return '<div class="wl-row">' +
+      '<button class="spk-btn sm ic" data-spk="' + esc(w.word) + '" data-spkl="' + esc(wl) + '" title="真人发音">🔊</button>' +
+      '<span class="w" data-dw="' + esc(w.word) + '" data-dl="' + esc(wl) + '" title="点击查看详解">' + esc(w.word) + '</span>' +
       '<span class="m">' + esc(w.meaning) + '</span><span class="x">✗' + (w.my ? ' 选了「' + esc(w.my) + '」' : '') + '</span></div>';
   }).join('') : '<div class="wb-empty">本轮全部答对，零错词 🎯</div>';
   app.innerHTML =
@@ -2012,8 +2299,11 @@ function renderStuSummary(){
       '<button class="btn" id="ssExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
     '<button class="btn ghost" id="ssHome">返回学习主页</button>' +
   '</div>';
-  app.querySelectorAll('.wl-row .w').forEach(function(el){
-    el.onclick = function(){ speak(el.getAttribute('data-w') || el.textContent.replace('🔊 ', ''), s.lang); };
+  app.querySelectorAll('.wl-row [data-spk]').forEach(function(el){
+    el.onclick = function(){ speak(el.getAttribute('data-spk'), el.getAttribute('data-spkl')); };
+  });
+  app.querySelectorAll('.wl-row [data-dw]').forEach(function(el){
+    el.onclick = function(){ openWordDetail(el.getAttribute('data-dw'), el.getAttribute('data-dl')); };
   });
   $('#ssAgain').onclick = function(){ stuStart(s.mode, s.unit, s.label); };
   var sx = document.getElementById('ssExtra'); if (sx) sx.onclick = function(){ stuAddExtra(stu.extraStep); };
@@ -2255,15 +2545,25 @@ function renderGame(v){
   var letters = ['A','B','C','D'];
 
   var centerHtml;
+  var pkLang = bookLangOf(v.settings && v.settings.bookId);
   if (v.phase === 'question') {
     if (isListen) {
       centerHtml = '<button class="listen-btn speak-flash" id="replayBtn" title="点击重听">🔊</button>' +
         '<div class="listen-tip">正在播放单词读音 · 点喇叭可重听</div>';
     } else {
-      centerHtml = '<div class="word">' + esc(q.word) + '</div>';
+      // 看词选义：单词下方直接标音标 + 真人发音小喇叭（需求 1 覆盖对战场景）
+      centerHtml = '<div class="word">' + esc(q.word) + '</div>' +
+        '<div class="sq-tools" style="margin:0 0 4px">' +
+          '<button class="spk-btn" id="pkSpeak" title="真人发音">🔊 发音</button>' +
+          '<span class="ipa ipa-cell" data-ipa-w="' + esc(q.word) + '" data-ipa-l="' + esc(pkLang) + '"></span>' +
+        '</div>';
     }
   } else {
     centerHtml = '<div class="word">' + esc(q.word) + '</div>' +
+      '<div class="sq-tools" style="margin:0 0 4px">' +
+        '<button class="spk-btn" id="pkSpeak" title="真人发音">🔊 发音</button>' +
+        '<span class="ipa ipa-cell" data-ipa-w="' + esc(q.word) + '" data-ipa-l="' + esc(pkLang) + '"></span>' +
+      '</div>' +
       '<div class="meaning">✔ ' + esc(q.options[v.lastResult ? v.lastResult.correctIndex : 0]) + '</div>';
   }
 
@@ -2351,6 +2651,9 @@ function renderGame(v){
   });
   var rb = $('#replayBtn');
   if (rb) rb.onclick = function(){ speak(q.word, bookLangOf(v.settings && v.settings.bookId)); };
+  var pks = $('#pkSpeak');
+  if (pks) pks.onclick = function(){ speak(q.word, pkLang); };
+  if (pks || rb) fillIpaCells(app); // 给 PK 题音标小标签异步填充（学习/对战共用缓存，命中即同步）
 
   // 听力模式自动朗读（每题一次）
   if (v.phase === 'question' && isListen && lastSpokenQ !== v.qIndex) {

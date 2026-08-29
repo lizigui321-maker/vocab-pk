@@ -1628,6 +1628,30 @@ const server = http.createServer(async (req, res) => {
       try { publicUrl = fs.readFileSync('store/public-url.txt', 'utf8').trim(); } catch (e) {}
       return send(res, 200, { port: PORT, ips: lanIPs(), publicUrl, storeMode: kvUsable ? 'upstash' : 'local' });
     }
+    /* 公开诊断端点（只暴露数量与字节数，不泄露任何用户名/密码/内容）：
+       用于排查「部署后账号消失」——可看出云端到底有没有数据、数据多大、写入是否报错。 */
+    if (req.method === 'GET' && p === '/api/diag') {
+      let cloud = { ok: false, error: 'not-attempted' };
+      try { cloud = await kvGet('accounts', 1, 8000); } catch (e) { cloud = { ok: false, error: String(e && e.message) }; }
+      const memStr = JSON.stringify(accounts);
+      const cloudVal = (cloud && cloud.found && cloud.value) ? cloud.value : null;
+      return send(res, 200, {
+        ok: true,
+        storeMode: kvUsable ? 'upstash' : 'local',
+        kvConfigured: KV_ON,
+        kvUsable: kvUsable,
+        kvLastError: kvLastError || null,
+        memAccountCount: Object.keys(accounts).length,
+        memAccountsKB: +(Buffer.byteLength(memStr) / 1024).toFixed(1),
+        cloudOk: !!(cloud && cloud.ok),
+        cloudFound: !!(cloud && cloud.found),
+        cloudError: (cloud && cloud.error) || null,
+        cloudAccountCount: cloudVal ? Object.keys(cloudVal).length : 0,
+        cloudAccountsKB: cloudVal ? +(Buffer.byteLength(JSON.stringify(cloudVal)) / 1024).toFixed(1) : 0,
+        leaseOwner: leaseOwner,
+        serverTime: new Date().toISOString(),
+      });
+    }
     // ---------------- 账号系统接口 ----------------
     if (req.method === 'POST' && p === '/api/register') {
       const b = await readBody(req);

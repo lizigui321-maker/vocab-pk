@@ -50,8 +50,7 @@ const U = (p) => 'vfy_' + p + Date.now().toString(36) + Math.random().toString(3
   const roomId = c.data.roomId, pidA = c.data.playerId;
   const j = await api('/api/join', { token: tokB, roomId });
   const pidB = j.data.playerId;
-  await api('/api/ready', { roomId, playerId: pidA }); // 全员准备后才能开始
-  await api('/api/ready', { roomId, playerId: pidB });
+  await api('/api/ready', { roomId, playerId: pidB }); // 只有客人需要准备（房主无需）
   await api('/api/start', { roomId, playerId: pidA });
   await sleep(3400); // 3 秒倒计时
   console.log('房间 ' + roomId + ' 开局，两玩家就位，连续验证 3 题…');

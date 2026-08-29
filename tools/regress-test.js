@@ -90,20 +90,20 @@ async function main() {
   ok(s1.players.length === 2, '房间内 2 名玩家');
   ok(s1.players.every((p) => p.connected === true), '纯轮询玩家绿点全部在线（connected=true）');
 
-  /* 新规则：全员「准备」后房主才能开始，且开始时有 3 秒倒计时 */
-  console.log('== 5. 全员准备 + 3 秒倒计时 ==');
+  /* 新规则：只有「非房主」玩家需要准备，房主点开始即代表自己就绪；开始时有 3 秒倒计时。
+     （房主不需要点准备——他点「开始」本身就说明准备好了，单人房尤其明显） */
+  console.log('== 5. 玩家准备 + 3 秒倒计时 ==');
   const early = await api('/api/start', { roomId: roomId, playerId: pidA });
-  ok(early.status === 400, '★ 有人未准备时房主无法开始（400）');
-  await api('/api/ready', { roomId: roomId, playerId: pidA });
+  ok(early.status === 400, '★ 客人未准备时房主无法开始（400）');
   s1 = (await api('/api/state?roomId=' + roomId + '&playerId=' + pidA)).data;
-  ok((s1.players.find((p) => p.id === pidA) || {}).ready === true, 'A 的准备状态已同步到房间');
-  const half = await api('/api/start', { roomId: roomId, playerId: pidA });
-  ok(half.status === 400, '★ 仍有 1 人未准备时依旧无法开始（400）');
+  ok(s1.allReady === false, '客人未准备 → allReady=false');
   await api('/api/ready', { roomId: roomId, playerId: pidB });
   s1 = (await api('/api/state?roomId=' + roomId + '&playerId=' + pidA)).data;
-  ok(s1.allReady === true, '★ 全员准备后 allReady=true');
+  ok((s1.players.find((p) => p.id === pidB) || {}).ready === true, '客人 B 的准备状态已同步到房间');
+  ok(s1.allReady === true, '★ 客人准备后 allReady=true（房主自己并未点准备）');
+  ok((s1.players.find((p) => p.id === pidA) || {}).ready === false, '★ 房主无需准备：其 ready 仍为 false 也能开始');
   const st = await api('/api/start', { roomId: roomId, playerId: pidA });
-  ok(st.status === 200, '★ 全员准备后房主成功开始');
+  ok(st.status === 200, '★ 房主成功开始（自己未点准备）');
   s1 = (await api('/api/state?roomId=' + roomId + '&playerId=' + pidA)).data;
   ok(s1.phase === 'countdown', '★ 开始后先进入 countdown（3 秒倒计时）');
   ok(typeof s1.countdownEndsAt === 'number' && s1.countdownEndsAt > Date.now(), '倒计时结束时刻已下发（各端一致）');
@@ -139,7 +139,7 @@ async function main() {
 
   console.log('== 7. 超时未答：轮询玩家也应记生词（单人房） ==');
   const c2 = (await api('/api/create', { token: tokA, bookId: 'cet4', mode: 'word', count: 10 })).data;
-  await api('/api/ready', { roomId: c2.roomId, playerId: c2.playerId }); // 单人房也要先准备
+  // 单人房：房主无需准备，可直接开始
   await api('/api/start', { roomId: c2.roomId, playerId: c2.playerId });
   await sleep(3400); // 等 3 秒倒计时结束
   let sc = (await api('/api/state?roomId=' + c2.roomId + '&playerId=' + c2.playerId)).data;

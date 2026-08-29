@@ -183,6 +183,8 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 /* 准备状态徽章：全员准备后房主才能开始 */
 .prow .rdy{flex:none;font-size:11.5px;font-weight:700;border-radius:99px;padding:3px 10px;background:var(--well);color:var(--sub)}
 .prow .rdy.on{background:rgba(16,185,129,.14);color:var(--ok)}
+/* 房主无需准备，状态位直接显示身份 */
+.prow .rdy.hostb{background:rgba(245,158,11,.14);color:#b45309}
 /* 房间内设置区（房主可改词书/模式/题数） */
 .roomset{background:var(--well);border-radius:14px;padding:10px 13px;margin-top:12px;display:flex;flex-direction:column;gap:9px}
 .rsrow{display:flex;align-items:center;gap:10px;font-size:13.5px}
@@ -2645,12 +2647,15 @@ function renderLobby(v){
   var playerRows = v.players.map(function(p){
     if (p.id === v.you) { meHost = p.isHost; meReady = !!p.ready; }
     var isMe = p.id === v.you;
+    /* 房主无需准备：他那一行的状态徽章显示「👑 房主」而不是「未准备」 */
+    var rdyHtml = p.isHost
+      ? '<span class="rdy hostb">👑 房主</span>'
+      : '<span class="rdy ' + (p.ready ? 'on' : '') + '">' + (p.ready ? '✅ 已准备' : '⏳ 未准备') + '</span>';
     return '<div class="prow">' +
       '<span class="dot ' + (p.connected ? 'on' : '') + '"></span>' +
       friendNameHtml(p, isMe) +
-      (p.isHost ? ' <span class="host">👑 房主</span>' : '') +
       (isMe ? ' <span class="me">我</span>' : '') +
-      '<span class="rdy ' + (p.ready ? 'on' : '') + '">' + (p.ready ? '✅ 已准备' : '⏳ 未准备') + '</span>' +
+      rdyHtml +
       '</div>';
   }).join('');
   setTimeout(bindFriendNames, 0);
@@ -2678,15 +2683,19 @@ function renderLobby(v){
     '<div class="plist">' + playerRows + '</div>' +
     // 房主可在房间内直接改词书 / 模式 / 题数（改动后全员需重新准备）
     (meHost ? roomSettingsHtml(v) : '') +
-    // 准备按钮：所有人都（含房主）必须准备，房主才能开始
-    '<button class="btn ' + (meReady ? 'ghost' : '') + '" id="readyBtn">' +
-      (meReady ? '✅ 已准备（点此取消）' : '🙋 我准备好了') + '</button>' +
+    // 只有非房主需要点「准备」；房主直接点开始即可（房主点开始就代表自己已就绪）
+    (meHost ? '' :
+      '<button class="btn ' + (meReady ? 'ghost' : '') + '" id="readyBtn">' +
+        (meReady ? '✅ 已准备（点此取消）' : '🙋 我准备好了') + '</button>') +
     (meHost
       ? '<button class="btn" id="startBtn"' + (v.allReady ? '' : ' disabled') + '>' +
-          (v.allReady ? '开始对战 ' + (v.players.length > 1 ? '🚀' : '（单人练习）▶') : '🔒 等待全员准备…') +
+          (v.allReady ? '开始对战 ' + (v.players.length > 1 ? '🚀' : '（单人练习）▶') : '🔒 等待其他玩家准备…') +
         '</button>' +
-        '<div class="hint">所有玩家都点「我准备好了」后才能开始；开始时会有 3 秒倒计时。人数 ≥1 即可（单人也能练），最多 5 人。</div>'
-      : '<div class="waiting">' + (meReady ? '已准备，等待其他人…' : '等待房主开始… 👀') + '</div>') +
+        '<div class="hint">' + (v.players.length > 1
+            ? '等其他玩家都点「我准备好了」后即可开始（你作为房主无需准备）；开始时有 3 秒倒计时。'
+            : '单人也能练，直接开始即可；开始时有 3 秒倒计时。') +
+          '最多 5 人。</div>'
+      : '<div class="waiting">' + (meReady ? '已准备，等待房主开始…' : '点上方「我准备好了」，等房主开始 👀') + '</div>') +
     '<button class="btn ghost" id="inviteBtn">🤝 邀请好友进房间</button>' +
     '<div class="hint" style="margin-top:10px">💡 点房间里其他玩家的名字，即可一键加为好友（不用搜索）。</div>' +
     '<button class="btn ghost" id="backBtn">返回首页</button>' +
@@ -2988,13 +2997,14 @@ function renderResult(v){
   '<div class="card rank">' + rows + '</div>' +
   wordPanelHtml(v) +
   '<div class="card" style="padding:16px">' +
-    // 再来一局同样需要全员准备（避免有人被直接拖进下一局）
-    '<button class="btn ' + (meReady ? 'ghost' : '') + '" id="rReadyBtn">' +
-      (meReady ? '✅ 已准备（点此取消）' : '🙋 我准备好了') + '</button>' +
+    // 同样：只有非房主需要准备，房主点「再来一局」即可
+    (meHost ? '' :
+      '<button class="btn ' + (meReady ? 'ghost' : '') + '" id="rReadyBtn">' +
+        (meReady ? '✅ 已准备（点此取消）' : '🙋 我准备好了') + '</button>') +
     (meHost
       ? '<button class="btn" id="replayBtn"' + (v.allReady ? '' : ' disabled') + '>' +
-          (v.allReady ? '再来一局 🔁（换一批新词）' : '🔒 等待全员准备…') + '</button>'
-      : '<div class="waiting" style="margin:6px 0 4px">' + (meReady ? '已准备，等待其他人…' : '等房主发起再来一局…') + '</div>') +
+          (v.allReady ? '再来一局 🔁（换一批新词）' : '🔒 等待其他玩家准备…') + '</button>'
+      : '<div class="waiting" style="margin:6px 0 4px">' + (meReady ? '已准备，等房主发起再来一局…' : '点「我准备好了」，等房主发起下一局') + '</div>') +
     '<button class="btn ghost" id="backBtn">返回首页</button>' +
   '</div>';
   bindWordPanel(v);

@@ -95,11 +95,20 @@ async function main() {
   console.log('    =>', badStart.status, badStart.json.error || '(未拒绝!)');
   if (badStart.status === 200) throw new Error('非房主不应能开始游戏');
 
-  console.log('[5] 全员准备后房主开始游戏（含 3 秒倒计时）...');
-  await req('POST', '/api/ready', { roomId, playerId: hostId });
+  console.log('[5] 客人准备后房主开始游戏（含 3 秒倒计时；房主无需准备）...');
+  // 客人未准备时，房主不应能开始
+  const earlyStart = await req('POST', '/api/start', { roomId, playerId: hostId });
+  if (earlyStart.status === 200) throw new Error('客人未准备却仍能开始，准备机制失效');
+  console.log('    客人未准备时开始被拒 =>', earlyStart.status, earlyStart.json.error || '');
+  // 只有客人需要准备
   await req('POST', '/api/ready', { roomId, playerId: guestId });
+  const st5 = await req('GET', '/api/state?roomId=' + roomId + '&playerId=' + hostId);
+  if (st5.json.allReady !== true) throw new Error('客人已准备但 allReady 不为 true');
+  const hostReady = (st5.json.players || []).find((p) => p.isHost);
+  if (hostReady && hostReady.ready !== false) throw new Error('房主不应需要准备');
+  console.log('    客人已准备，房主未准备（符合预期），房主开始');
   const notReadyStart = await req('POST', '/api/start', { roomId, playerId: hostId });
-  if (notReadyStart.status !== 200) throw new Error('全员已准备却无法开始：' + (notReadyStart.json.error || ''));
+  if (notReadyStart.status !== 200) throw new Error('客人已准备却无法开始：' + (notReadyStart.json.error || ''));
   await sleep(3400); // 等 3 秒倒计时走完
   const cdState = await req('GET', '/api/state?roomId=' + roomId + '&playerId=' + hostId);
   if (cdState.json.phase !== 'question') throw new Error('倒计时结束后未进入答题阶段：' + cdState.json.phase);
@@ -149,8 +158,7 @@ async function main() {
   console.log(`    答题统计: 正确判定 ${correct} 次, 错误判定 ${wrong} 次, 超时 ${timeouts} 次`);
   if (correct + wrong + timeouts !== 20) throw new Error('答题记录数不对（应为 20 = 2人×10题）');
 
-  console.log('[7] 再来一局（同样需全员准备 + 3 秒倒计时）...');
-  await req('POST', '/api/ready', { roomId, playerId: hostId });
+  console.log('[7] 再来一局（同样只需客人准备，房主无需；含 3 秒倒计时）...');
   await req('POST', '/api/ready', { roomId, playerId: guestId });
   const rep = await req('POST', '/api/replay', { roomId, playerId: hostId });
   if (rep.status !== 200) throw new Error('再来一局失败：' + (rep.json.error || ''));

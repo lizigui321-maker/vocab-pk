@@ -1275,7 +1275,10 @@ function view(room, playerId) {
       ready: !!p.ready,
     })),
     you: playerId,
-    allReady: room.players.size > 0 && [...room.players.values()].every((p) => p.ready),
+    /* 准备状态只看【非房主】玩家：房主点「开始」本身就代表他准备好了，
+       再要求房主点一次准备纯属多余（单人房更是荒谬）。
+       房间里只有房主一人时，非房主集合为空 → allReady=true，可直接开始。 */
+    allReady: [...room.players.values()].filter((p) => !p.isHost).every((p) => p.ready),
   };
   // 开局倒计时：所有人都能看到同一个「3、2、1」，避免各端计时不一致造成的抢跑
   if (room.phase === 'countdown') v.countdownEndsAt = room.countdownEndsAt;
@@ -1962,8 +1965,8 @@ const server = http.createServer(async (req, res) => {
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以开始游戏' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '当前阶段无法开始' });
-      // 所有人（含房主自己）都必须先准备，避免有人还在看手机就被直接拉进对战
-      const notReady = [...room.players.values()].filter((x) => !x.ready);
+      // 只有「非房主」玩家需要先准备（房主点开始即代表自己已就绪）
+      const notReady = [...room.players.values()].filter((x) => !x.isHost && !x.ready);
       if (notReady.length) {
         return send(res, 400, { error: '还有 ' + notReady.length + ' 人未准备：' + notReady.map((x) => x.name).join('、') });
       }
@@ -2014,8 +2017,8 @@ const server = http.createServer(async (req, res) => {
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以再来一局' });
-      // 与开局保持一致：全员准备后才开始，并走 3 秒倒计时
-      const notReady = [...room.players.values()].filter((x) => !x.ready);
+      // 与开局一致：只看非房主玩家是否就绪，并走 3 秒倒计时
+      const notReady = [...room.players.values()].filter((x) => !x.isHost && !x.ready);
       if (notReady.length) {
         return send(res, 400, { error: '还有 ' + notReady.length + ' 人未准备：' + notReady.map((x) => x.name).join('、') });
       }

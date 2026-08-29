@@ -1,0 +1,112 @@
+{
+  "at": "2026-08-29T20:00:40.271Z",
+  "username": "ztest01",
+  "words": [
+    "surgery",
+    "permission",
+    "claim",
+    "religion"
+  ],
+  "known": [
+    "persistentword"
+  ],
+  "customBooks": [
+    {
+      "id": "cb-1788033636890",
+      "name": "部署验证词书",
+      "n": 3
+    }
+  ],
+  "progressKeys": [
+    "claim",
+    "heat",
+    "patch",
+    "permission",
+    "persistentword",
+    "religion",
+    "surgery"
+  ],
+  "progressDetail": {
+    "religion": {
+      "lv": 0,
+      "n": 1,
+      "c": 0,
+      "wrong": 1,
+      "due": 1788034234284,
+      "firstAt": 1788033634284,
+      "lastAt": 1788033634284,
+      "meaning": "宗教；宗教信仰"
+    },
+    "claim": {
+      "lv": 0,
+      "n": 1,
+      "c": 0,
+      "wrong": 1,
+      "due": 1788034234654,
+      "firstAt": 1788033634654,
+      "lastAt": 1788033634654,
+      "meaning": "声称，主张；索取"
+    },
+    "permission": {
+      "lv": 0,
+      "n": 1,
+      "c": 0,
+      "wrong": 1,
+      "due": 1788034235024,
+      "firstAt": 1788033635024,
+      "lastAt": 1788033635024,
+      "meaning": "允许，许可，同意"
+    },
+    "surgery": {
+      "lv": 0,
+      "n": 1,
+      "c": 0,
+      "wrong": 1,
+      "due": 1788034235390,
+      "firstAt": 1788033635390,
+      "lastAt": 1788033635390,
+      "meaning": "外科，外科手术"
+    },
+    "patch": {
+      "lv": 1,
+      "n": 1,
+      "c": 1,
+      "wrong": 0,
+      "due": 1788163235770,
+      "firstAt": 1788033635770,
+      "lastAt": 1788033635770,
+      "meaning": "补钉；碎片"
+    },
+    "heat": {
+      "lv": 1,
+      "n": 1,
+      "c": 1,
+      "wrong": 0,
+      "due": 1788163236144,
+      "firstAt": 1788033636144,
+      "lastAt": 1788033636144,
+      "meaning": "热，炎热"
+    },
+    "persistentword": {
+      "lv": 5,
+      "n": 0,
+      "c": 0,
+      "wrong": 0,
+      "due": 1819569636513,
+      "firstAt": 1788033636513,
+      "lastAt": 1788033636513
+    }
+  },
+  "logKeys": [
+    "2026-08-29"
+  ],
+  "plan": {
+    "bookId": "cet4",
+    "dailyNew": 20,
+    "vocabEstimate": 2000,
+    "autoSpeak": true
+  },
+  "mywordsCount": 4,
+  "overviewLearned": 6,
+  "overviewMastered": 0
+}

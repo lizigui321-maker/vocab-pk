@@ -36,7 +36,10 @@ const kvServer = http.createServer((req, res) => {
     let b = '';
     req.on('data', (c) => (b += c));
     req.on('end', () => {
-      try { store[key] = JSON.parse(b); } catch (e) { store[key] = b; }
+      // 必须与真实 Upstash 行为一致：按【原样字符串】保存，不做任何解析。
+      // 之前这里先 JSON.parse 再存，恰好抵消了服务端「双重序列化」多套的那一层，
+      // 导致该 bug 在测试中永远测不出来、只在生产环境爆炸（每次更新账号全丢）。
+      store[key] = b;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ result: 'OK' }));
     });

@@ -38,7 +38,8 @@ const kvServer = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
-      try { store[key] = JSON.parse(body); } catch (e) { store[key] = body; }
+      // 与真实 Upstash 一致：按原样字符串保存，不解析（否则会掩盖序列化层级的 bug）
+      store[key] = body;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ result: 'OK' }));
     });

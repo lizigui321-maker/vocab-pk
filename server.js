@@ -152,8 +152,18 @@ async function kvGetOnce(key, ms) {
     if (!r.ok) return { ok: false, error: 'http_' + r.status };
     const d = await r.json().catch(() => ({}));
     if (d.result == null) return { ok: true, found: false, value: null };
-    try { return { ok: true, found: true, value: JSON.parse(d.result) }; }
-    catch (e) { return { ok: true, found: true, value: null }; }
+    /* 反序列化后再兜一层：
+       历史数据曾用「双重序列化」写入（JSON.stringify(JSON.stringify(data))），
+       取回来 parse 一次后仍是【字符串】，导致上层 typeof value === 'object' 判 false 而整批跳过
+       —— 这正是「每次更新后所有账号都不见了」的根因。这里多 parse 一层，
+       既能正确读出新格式，也能把云端已存在的旧格式数据救回来。 */
+    try {
+      let v = JSON.parse(d.result);
+      if (typeof v === 'string') {
+        try { v = JSON.parse(v); } catch (e2) { /* 本身就是普通字符串值，保持原样 */ }
+      }
+      return { ok: true, found: true, value: v };
+    } catch (e) { return { ok: true, found: true, value: null }; }
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
 /* 读取带指数退避重试（默认 3 次）：一次网络抖动不再导致「整进程永久降级为本地文件模式 →
@@ -174,7 +184,9 @@ async function kvSetOnce(key, data) {
     const r = await kvFetch(UPSTASH_URL + '/set/' + encodeURIComponent(KV_PREFIX + key), {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN, 'Content-Type': 'application/json' },
-      body: JSON.stringify(JSON.stringify(data)),
+      // 只序列化一次：Upstash 按原样保存字符串，读取时 parse 一次即可还原对象。
+      // （此前写成 JSON.stringify(JSON.stringify(data))，多套了一层，读回来是字符串而非对象）
+      body: JSON.stringify(data),
     }, 8000);
     if (!r.ok) {
       kvLastError = 'http_' + r.status;

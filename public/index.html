@@ -168,6 +168,35 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .prow .dot.on{background:var(--ok)}
 .prow .host{color:#d97706;font-size:13px}
 .prow .me{color:var(--brand);font-size:12px;background:rgba(79,70,229,.12);border-radius:6px;padding:1px 7px}
+.prow .pn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 准备状态徽章：全员准备后房主才能开始 */
+.prow .rdy{flex:none;font-size:11.5px;font-weight:700;border-radius:99px;padding:3px 10px;background:var(--well);color:var(--sub)}
+.prow .rdy.on{background:rgba(16,185,129,.14);color:var(--ok)}
+/* 房间内设置区（房主可改词书/模式/题数） */
+.roomset{background:var(--well);border-radius:14px;padding:10px 13px;margin-top:12px;display:flex;flex-direction:column;gap:9px}
+.rsrow{display:flex;align-items:center;gap:10px;font-size:13.5px}
+.rsrow .rsl{flex:none;width:3em;color:var(--sub);font-weight:600}
+.rssel{flex:1;min-width:0;padding:8px 10px;border:1.5px solid var(--line);border-radius:11px;background:var(--card);color:var(--ink);font-size:13.5px;outline:none;font-family:inherit}
+.rssel:focus{border-color:var(--brand)}
+/* 开局倒计时 */
+.cd-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:44px 20px;text-align:center}
+.cd-num{font-size:96px;font-weight:800;line-height:1;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;animation:cdpop .6s var(--ease)}
+@keyframes cdpop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+.cd-tip{font-size:14px;color:var(--sub)}
+/* PK 结算「单词总览面板」（类表格，可勾选加入生词本） */
+.wtable{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+.wtable th,.wtable td{border-bottom:var(--hair);padding:8px 6px;text-align:left;vertical-align:middle}
+.wtable th{font-size:11.5px;color:var(--sub);font-weight:700;letter-spacing:.3px;white-space:nowrap}
+.wtable td.w{font-weight:800;color:var(--ink);white-space:nowrap}
+.wtable td.m{color:var(--ink);line-height:1.45}
+.wtable tr.mine{background:rgba(79,70,229,.05)}
+.wtable .tag{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 7px;margin-right:4px}
+.wtable .tag.ok{background:rgba(16,185,129,.14);color:var(--ok)}
+.wtable .tag.no{background:rgba(239,68,68,.12);color:var(--bad)}
+.wtable .ck{width:16px;height:16px;accent-color:#4f46e5}
+.wpanel-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
+.wpanel-bar .sp{flex:1}
+.wpanel-scroll{max-height:52vh;overflow:auto;border-radius:14px}
 .topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:0;z-index:30;margin:-20px -16px 16px;padding:11px 16px;background:var(--glass);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:var(--hair)}
 .modal .topbar{position:static;margin:0;padding:14px 16px;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
 .chip{background:var(--card);border:var(--hair);border-radius:999px;padding:6px 14px;font-size:13px;color:#475569;box-shadow:var(--shadow-sm)}
@@ -478,12 +507,57 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
   .vt-btns button{ padding:13px 0; font-size:15px; }
   .btn{ font-size:16px; }
 }
+/* ---------- 手机端对战（PK）专项压缩 ----------
+   问题：顶栏 5 个 chip + 玩家分数条 + 大字号单词 + 听力模式大喇叭，
+   在小屏上总高必然超出一屏，导致「选项被挤到屏幕外、要滚动才看得到」。
+   策略：压缩上方所有信息区（分数条改横向滚动固定一行），
+   把可用高度尽量留给选项，保证 4 个选项始终首屏可见。 */
+@media (max-width:480px){
+  .topbar{ gap:6px; padding:8px 12px; margin:-18px -14px 10px; }
+  .topbar .chip{ padding:4px 9px; font-size:12px; }
+  /* 对战顶栏信息多：改单行横向滚动，避免占掉两行高度把选项挤下去 */
+  .pk-top{ flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .pk-top .chip{ flex:none; }
+  .scores{ gap:6px; margin-bottom:10px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px; }
+  .schip{ flex:none; padding:6px 9px; font-size:12.5px; border-radius:11px; gap:5px; }
+  .schip .nm{ max-width:5em; }
+  .schip .rk{ width:19px; height:19px; font-size:10.5px; }
+  .qwrap{ padding:18px 14px; border-radius:22px; }
+  .qmeta{ font-size:12px; margin-bottom:4px; }
+  .word{ font-size:36px; margin:4px 0 3px; }
+  .sq-tools{ gap:6px; margin:0 0 2px !important; }
+  .listen-btn{ width:80px; height:80px; font-size:32px; margin:6px auto; }
+  .listen-tip{ font-size:12px; }
+  .timerbar{ height:6px; margin:10px 0 2px; }
+  .tsec{ font-size:11.5px; }
+  .opts{ gap:9px; margin-top:11px; }
+  .opt{ padding:12px 10px; font-size:14.5px; border-radius:13px; }
+  .opt .k{ width:23px; height:23px; font-size:11.5px; border-radius:8px; }
+  .myfb{ margin-top:10px; font-size:14px; padding:9px 12px; }
+  .gain{ margin-top:8px; gap:6px; }
+  .gain span{ font-size:12px; padding:2px 8px; }
+}
+/* 超窄屏（≤360px，如小屏安卓）进一步压缩 */
+@media (max-width:360px){
+  .word{ font-size:31px; }
+  .opt{ padding:10px 9px; font-size:13.5px; }
+  .topbar .chip{ padding:3px 7px; font-size:11.5px; }
+  .listen-btn{ width:70px; height:70px; font-size:28px; }
+}
 </style>
 </head>
 <body>
-<div id="app"></div>
+<!-- 启动画面：先立刻画出内容，避免冷启动/弱网时长时间白屏（books.bundle.js 改为后台异步加载） -->
+<div id="app">
+  <div id="boot-splash" style="min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;color:#64748b;text-align:center;padding:0 20px">
+    <div style="font-size:38px;line-height:1">📚</div>
+    <div style="font-size:16px;font-weight:700;color:#334155;letter-spacing:.5px">背他喵的</div>
+    <div style="width:22px;height:22px;border:3px solid rgba(79,70,229,.25);border-top-color:#4f46e5;border-radius:50%;animation:vpkspin .8s linear infinite"></div>
+    <div style="font-size:12.5px" id="boot-msg">正在载入…</div>
+  </div>
+</div>
+<style>@keyframes vpkspin{to{transform:rotate(360deg)}}</style>
 <div class="toast" id="toast"></div>
-<script src="/books.bundle.js"></script>
 <script>
 'use strict';
 var $ = function(s){ return document.querySelector(s); };
@@ -1697,7 +1771,7 @@ function renderStuDash(){
       '<div class="stu-ring">' + ringSvg(planPct) + '<div class="num">' + t.new + '<small>/ ' + t.dailyNew + ' 新词</small></div></div>' +
       '<div class="stu-td-info">' +
         '今日已学 <b>' + doneToday + '</b> 词 · 答错 <b style="color:var(--bad)">' + t.wrong + '</b><br>' +
-        '待复习 <b>' + ov.due + '</b> 词 · 生词本 <b>' + ov.wrongCount + '</b> 词' +
+        '待复习 <b>' + ((ov.review && ov.review.due) || ov.due || 0) + '</b> 词 · 易错 <b style="color:var(--bad)">' + ((ov.review && ov.review.weak) || 0) + '</b> 词 · 生词本 <b>' + ov.wrongCount + '</b> 词' +
         (t.newRemaining > 0 ? '' : '<br>🎉 <b>今日新词任务已完成</b>') +
       '</div>' +
     '</div>' +
@@ -1707,7 +1781,11 @@ function renderStuDash(){
       '<button data-v="spell" class="' + (stu.inputMode === 'spell' ? 'on' : '') + '">⌨️ 拼写题（看义写词）</button>' +
     '</div>' +
     '<button class="btn" id="stuGo">开始学习 ' + (t.newRemaining > 0 || ov.due > 0 ? '📖' : '（复习模式）🔁') + '</button>' +
-    '<button class="btn ghost" id="stuReview">🎯 复习生词本（' + ov.wrongCount + '）</button>' +
+    '<button class="btn ghost" id="stuReview">🎯 智能复习' +
+      (ov.review
+        ? '（待复习 ' + ov.review.due + (ov.review.weak ? ' · 易错 ' + ov.review.weak : '') + '）'
+        : '（' + ov.wrongCount + '）') +
+      '</button>' +
     (t.newRemaining === 0 && t.newPoolRemaining > 0 ?
       '<div class="stu-extra"><span class="lbl">🌱 临时加学</span>' +
       '<div class="seg sm" id="extraSeg">' +
@@ -1882,12 +1960,12 @@ function stuStart(mode, unit, label, extraNew){
   app.innerHTML = '<h1>📚 背单词</h1><div class="tagline"><span class="spin"></span>出题中…</div>';
   api(url, null, 'GET').then(function(d){
     if (!d.questions || !d.questions.length) {
-      toast(mode === 'daily' ? '今日任务已完成，去单元里加练或复习生词吧' : (mode === 'review' ? '生词本是空的' : '该单元没有需要练的词'));
+      toast(mode === 'daily' ? '今日任务已完成，去单元里加练或做智能复习吧' : (mode === 'review' ? '暂时没有需要复习的词，先去学新词吧 🎉' : '该单元没有需要练的词'));
       renderStudy();
       return;
     }
     stu.sess = {
-      mode: mode, unit: unit == null ? null : unit, label: label || (mode === 'review' ? '生词本复习' : '每日任务'),
+      mode: mode, unit: unit == null ? null : unit, label: label || (mode === 'review' ? '智能复习' : '每日任务'),
       queue: d.questions.slice(), idx: 0, right: 0, wrong: 0, wrongWords: [], marks: [],
       autoSpeak: d.plan && d.plan.autoSpeak !== false, extra: d, lock: false, startedAt: Date.now(),
       lang: d.lang === 'es' ? 'es' : 'en',
@@ -2148,7 +2226,7 @@ function renderStuQuestion(){
     var cls = i < s.marks.length ? (s.marks[i] ? 'ok' : 'bad') : (i === s.idx ? 'cur' : '');
     marks += '<i class="' + cls + '"></i>';
   }
-  var modeTag = s.mode === 'review' ? '🎯 生词复习' : (s.mode === 'unit' ? '📘 ' + (s.label || '单元练习') : (q.isNew ? '🌱 新词' : '🔁 复习'));
+  var modeTag = s.mode === 'review' ? '🎯 智能复习' : (s.mode === 'unit' ? '📘 ' + (s.label || '单元练习') : (q.isNew ? '🌱 新词' : '🔁 复习'));
   var spell = stu.inputMode === 'spell';
   // 需求 5：答题后（无论对错）可随时看本题详解；进入下一题后也可回看上一个词的详解
   var prevBtn = (s.idx > 0)
@@ -2541,12 +2619,14 @@ document.addEventListener('keydown', function(e){
 
 /* ---------- 大厅 ---------- */
 function renderLobby(v){
-  var meHost = false;
+  var meHost = false, meReady = false;
   var playerRows = v.players.map(function(p){
-    if (p.id === v.you) meHost = p.isHost;
-    return '<div class="prow"><span class="dot ' + (p.connected ? 'on' : '') + '"></span>' +
-      esc(p.name) + (p.isHost ? ' <span class="host">👑 房主</span>' : '') +
-      (p.id === v.you ? ' <span class="me">我</span>' : '') +
+    if (p.id === v.you) { meHost = p.isHost; meReady = !!p.ready; }
+    return '<div class="prow">' +
+      '<span class="dot ' + (p.connected ? 'on' : '') + '"></span>' +
+      '<span class="pn">' + esc(p.name) + (p.isHost ? ' <span class="host">👑 房主</span>' : '') +
+        (p.id === v.you ? ' <span class="me">我</span>' : '') + '</span>' +
+      '<span class="rdy ' + (p.ready ? 'on' : '') + '">' + (p.ready ? '✅ 已准备' : '⏳ 未准备') + '</span>' +
       '</div>';
   }).join('');
   var ipHtml = INFO.ips && INFO.ips.length
@@ -2571,15 +2651,32 @@ function renderLobby(v){
       '<span class="chip">👥 <b>' + v.players.length + '</b> / 5 人</span>' +
     '</div>' +
     '<div class="plist">' + playerRows + '</div>' +
+    // 房主可在房间内直接改词书 / 模式 / 题数（改动后全员需重新准备）
+    (meHost ? roomSettingsHtml(v) : '') +
+    // 准备按钮：所有人都（含房主）必须准备，房主才能开始
+    '<button class="btn ' + (meReady ? 'ghost' : '') + '" id="readyBtn">' +
+      (meReady ? '✅ 已准备（点此取消）' : '🙋 我准备好了') + '</button>' +
     (meHost
-      ? '<button class="btn" id="startBtn">开始对战 ' + (v.players.length > 1 ? '🚀' : '（单人练习）▶') + '</button>' +
-        '<div class="hint">房主随时可以开始；人数 ≥1 即可（单人也能练），最多 5 人。本局开始后不能再加入，结束后可再加入。</div>'
-      : '<div class="waiting">等待房主开始… 👀</div>') +
+      ? '<button class="btn" id="startBtn"' + (v.allReady ? '' : ' disabled') + '>' +
+          (v.allReady ? '开始对战 ' + (v.players.length > 1 ? '🚀' : '（单人练习）▶') : '🔒 等待全员准备…') +
+        '</button>' +
+        '<div class="hint">所有玩家都点「我准备好了」后才能开始；开始时会有 3 秒倒计时。人数 ≥1 即可（单人也能练），最多 5 人。</div>'
+      : '<div class="waiting">' + (meReady ? '已准备，等待其他人…' : '等待房主开始… 👀') + '</div>') +
     '<button class="btn ghost" id="inviteBtn">🤝 邀请好友</button>' +
+    '<button class="btn ghost" id="addFriendBtn">➕ 加好友</button>' +
     '<button class="btn ghost" id="backBtn">返回首页</button>' +
   '</div>';
+  var rb = $('#readyBtn');
+  if (rb) rb.onclick = function(){
+    rb.disabled = true;
+    api('/api/ready', { roomId: session.roomId, playerId: session.playerId })
+      .then(function(){ rb.disabled = false; })
+      .catch(function(e){ toast(e.message); rb.disabled = false; });
+  };
+  bindRoomSettings(v, meHost);
   var sb = $('#startBtn');
   if (sb) sb.onclick = function(){
+    if (sb.disabled) return;
     sb.disabled = true; sb.innerHTML = '<span class="spin"></span>准备中…';
     api('/api/start', { roomId: session.roomId, playerId: session.playerId })
       .catch(function(e){ toast(e.message); sb.disabled = false; sb.innerHTML = '开始对战 🐱'; });
@@ -2598,6 +2695,47 @@ function renderLobby(v){
       });
     }).catch(function(e){ toast(e.message); });
   };
+  var afb = $('#addFriendBtn');
+  if (afb) afb.onclick = function(){
+    var un = prompt('输入对方用户名，直接加为好友（之后可在好友列表一键邀请）：');
+    if (!un) return;
+    un = String(un).trim();
+    if (!un) return;
+    api('/api/friend', { token: token, username: un })
+      .then(function(){ toast('已添加好友 @' + un); })
+      .catch(function(e){ toast(e.message); });
+  };
+}
+/* 房主的房间设置区：词书 / 模式 / 题数（仅房主可见） */
+function roomSettingsHtml(v){
+  var bookOpts = (BOOKS || []).map(function(b){
+    return '<option value="' + esc(b.id) + '"' + (b.id === v.settings.bookId ? ' selected' : '') + '>' + esc(b.name) + '</option>';
+  }).join('');
+  var countOpts = [10, 20, 30].map(function(c){
+    return '<option value="' + c + '"' + (Number(v.settings.count) === c ? ' selected' : '') + '>' + c + ' 题</option>';
+  }).join('');
+  return '<div class="roomset">' +
+    '<div class="rsrow"><span class="rsl">词书</span><select id="rsBook" class="rssel">' + bookOpts + '</select></div>' +
+    '<div class="rsrow"><span class="rsl">模式</span><select id="rsMode" class="rssel">' +
+      '<option value="word"' + (v.settings.mode !== 'listen' ? ' selected' : '') + '>📖 看词选义</option>' +
+      '<option value="listen"' + (v.settings.mode === 'listen' ? ' selected' : '') + '>🎧 听音辨义</option>' +
+    '</select></div>' +
+    '<div class="rsrow"><span class="rsl">题数</span><select id="rsCount" class="rssel">' + countOpts + '</select></div>' +
+  '</div>';
+}
+function bindRoomSettings(v, meHost){
+  if (!meHost) return;
+  function changed(){
+    api('/api/room/settings', {
+      roomId: session.roomId, playerId: session.playerId,
+      bookId: ($('#rsBook') || {}).value, mode: ($('#rsMode') || {}).value, count: Number(($('#rsCount') || {}).value),
+    }).then(function(){ toast('房间设置已更新，请大家重新准备'); })
+      .catch(function(e){ toast(e.message); });
+  }
+  ['rsBook', 'rsMode', 'rsCount'].forEach(function(id){
+    var el = $('#' + id);
+    if (el) el.onchange = changed;
+  });
 }
 
 /* ---------- 对战 ---------- */
@@ -2696,7 +2834,7 @@ function renderGame(v){
   }
 
   app.innerHTML =
-  '<div class="topbar">' +
+  '<div class="topbar pk-top">' +
     '<span class="chip">房间 <b>' + esc(v.roomId) + '</b></span>' +
     '<span class="chip">' + esc(v.bookName) + '</span>' +
     '<span class="chip mode">' + (isListen ? '🎧 听音辨义' : '📖 看词选义') + '</span>' +
@@ -2771,9 +2909,9 @@ function renderGame(v){
 function renderResult(v){
   var medals = ['🥇','🥈','🥉'];
   var players = v.players.slice().sort(function(a,b){ return b.score - a.score || b.correctCount - a.correctCount; });
-  var meHost = false;
+  var meHost = false, meReady = false;
   var rows = players.map(function(p, i){
-    if (p.id === v.you) meHost = p.isHost;
+    if (p.id === v.you) { meHost = p.isHost; meReady = !!p.ready; }
     var medal = i < 3 ? medals[i] : '<span style="color:#9ca3af;font-weight:700">' + (i + 1) + '</span>';
     var meCls = i === 0 ? 'rrow first' : 'rrow';
     var statHtml = p.isNew
@@ -2789,12 +2927,25 @@ function renderResult(v){
   '<h1>🏆 对战结束</h1>' +
   '<div class="tagline">' + esc(v.bookName) + ' · ' + (v.settings.mode === 'listen' ? '听音辨义' : '看词选义') + ' · ' + v.total + ' 题</div>' +
   '<div class="card rank">' + rows + '</div>' +
+  wordPanelHtml(v) +
   '<div class="card" style="padding:16px">' +
+    // 再来一局同样需要全员准备（避免有人被直接拖进下一局）
+    '<button class="btn ' + (meReady ? 'ghost' : '') + '" id="rReadyBtn">' +
+      (meReady ? '✅ 已准备（点此取消）' : '🙋 我准备好了') + '</button>' +
     (meHost
-      ? '<button class="btn" id="replayBtn">再来一局 🔁（换一批新词）</button>'
-      : '<div class="waiting" style="margin:6px 0 4px">等房主发起再来一局…</div>') +
+      ? '<button class="btn" id="replayBtn"' + (v.allReady ? '' : ' disabled') + '>' +
+          (v.allReady ? '再来一局 🔁（换一批新词）' : '🔒 等待全员准备…') + '</button>'
+      : '<div class="waiting" style="margin:6px 0 4px">' + (meReady ? '已准备，等待其他人…' : '等房主发起再来一局…') + '</div>') +
     '<button class="btn ghost" id="backBtn">返回首页</button>' +
   '</div>';
+  bindWordPanel(v);
+  var rrb = $('#rReadyBtn');
+  if (rrb) rrb.onclick = function(){
+    rrb.disabled = true;
+    api('/api/ready', { roomId: session.roomId, playerId: session.playerId })
+      .then(function(){ rrb.disabled = false; })
+      .catch(function(e){ toast(e.message); rrb.disabled = false; });
+  };
   var rp = $('#replayBtn');
   if (rp) rp.onclick = function(){
     rp.disabled = true; rp.innerHTML = '<span class="spin"></span>生成新题目…';
@@ -2804,43 +2955,228 @@ function renderResult(v){
   $('#backBtn').onclick = leaveRoom;
 }
 
+/* ---------- PK 结算：单词总览面板（类表格，可勾选任意词加入生词本） ----------
+   即便答对的词也能勾选——想再巩固一遍完全没问题。 */
+function wordPanelHtml(v){
+  var hist = v.history || [];
+  if (!hist.length) return '';
+  var rows = hist.map(function(h, i){
+    var mine = (h.results || {})[v.you];
+    var okTag = mine ? (mine.correct ? '<span class="tag ok">✓ 我答对</span>' : '<span class="tag no">✗ 我答错</span>')
+                     : '<span class="tag" style="background:var(--well);color:var(--sub)">— 未作答</span>';
+    var others = v.players.filter(function(p){ return p.id !== v.you; }).map(function(p){
+      var r = (h.results || {})[p.id];
+      if (!r) return '';
+      return '<span class="tag ' + (r.correct ? 'ok' : 'no') + '">' + esc(p.name) + (r.correct ? '✓' : '✗') + '</span>';
+    }).join('');
+    return '<tr data-i="' + i + '"' + (mine && !mine.correct ? ' class="mine"' : '') + '>' +
+      '<td><input type="checkbox" class="ck wp-ck" data-i="' + i + '"' + (mine && !mine.correct ? ' checked' : '') + '></td>' +
+      '<td class="w">' + esc(h.word) + '</td>' +
+      '<td class="m">' + esc(h.meaning || '') + '</td>' +
+      '<td>' + okTag + others + '</td>' +
+      '</tr>';
+  }).join('');
+  return '<div class="card" style="padding:16px">' +
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<b style="font-size:15px">📋 本局单词总览</b>' +
+      '<span style="font-size:12.5px;color:var(--sub)">共 ' + hist.length + ' 词 · 勾选后可加入生词本（答对的也能选）</span>' +
+    '</div>' +
+    '<div class="wpanel-bar">' +
+      '<button class="copybtn" id="wpAll">全选</button>' +
+      '<button class="copybtn" id="wpNone">全不选</button>' +
+      '<button class="copybtn" id="wpWrong">只看我答错的</button>' +
+      '<span class="sp"></span>' +
+      '<button class="btn" id="wpAdd" style="margin-top:0;width:auto;padding:9px 18px;font-size:14px">➕ 加入生词本</button>' +
+    '</div>' +
+    '<div class="wpanel-scroll">' +
+      '<table class="wtable"><thead><tr>' +
+        '<th style="width:34px"></th><th>单词</th><th>释义</th><th>作答情况</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '</div>' +
+  '</div>';
+}
+function bindWordPanel(v){
+  var hist = v.history || [];
+  if (!hist.length) return;
+  function boxes(){ return Array.prototype.slice.call(document.querySelectorAll('.wp-ck')); }
+  function setAll(on){ boxes().forEach(function(b){ b.checked = on; }); }
+  var a = $('#wpAll'); if (a) a.onclick = function(){ setAll(true); };
+  var n = $('#wpNone'); if (n) n.onclick = function(){ setAll(false); };
+  var w = $('#wpWrong'); if (w) w.onclick = function(){
+    boxes().forEach(function(b){
+      var h = hist[+b.getAttribute('data-i')];
+      var mine = h && (h.results || {})[v.you];
+      b.checked = !!(mine && !mine.correct);
+    });
+  };
+  var add = $('#wpAdd');
+  if (add) add.onclick = function(){
+    var picked = boxes().filter(function(b){ return b.checked; }).map(function(b){
+      var h = hist[+b.getAttribute('data-i')] || {};
+      return { word: h.word, meaning: h.meaning, book: h.bookName || v.bookName || '', lang: h.lang || 'en' };
+    });
+    if (!picked.length) { toast('请先勾选要收录的单词'); return; }
+    add.disabled = true; add.innerHTML = '<span class="spin"></span>收录中…';
+    api('/api/mywords/add', { token: token, words: picked })
+      .then(function(d){
+        toast('已收录 ' + (d.added || 0) + ' 个词' + (d.skipped ? '（' + d.skipped + ' 个已在生词本中）' : ''));
+        add.disabled = false; add.innerHTML = '➕ 加入生词本';
+        boxes().forEach(function(b){ if (b.checked) b.checked = false; });
+      })
+      .catch(function(e){ toast(e.message); add.disabled = false; add.innerHTML = '➕ 加入生词本'; });
+  };
+}
+
 /* ---------- 渲染分发 ---------- */
 function render(){
   if (page !== 'room' || !cur) return;
-  if (cur.phase === 'lobby') renderLobby(cur);
-  else if (cur.phase === 'result') renderResult(cur);
-  else renderGame(cur);
+  if (cur.phase === 'countdown') renderCountdown(cur);
+  else {
+    if (cdTimer) { clearInterval(cdTimer); cdTimer = null; }
+    if (cur.phase === 'lobby') renderLobby(cur);
+    else if (cur.phase === 'result') renderResult(cur);
+    else renderGame(cur);
+  }
+}
+/* 开局 3 秒倒计时：结束时刻由服务端统一下发（clockOffset 已校正客户端时钟），
+   保证所有人看到的数字一致，不会出现有人抢跑、有人还在等的情况。 */
+var cdTimer = null;
+function renderCountdown(v){
+  var endsAt = (v.countdownEndsAt || 0) - (clockOffset || 0);
+  if (!endsAt) endsAt = Date.now() + 3000;
+  app.innerHTML =
+  '<div class="qwrap">' +
+    '<div class="cd-wrap">' +
+      '<div class="cd-num" id="cdNum">3</div>' +
+      '<div class="cd-tip">准备开始…</div>' +
+    '</div>' +
+  '</div>';
+  if (cdTimer) clearInterval(cdTimer);
+  var lastShown = -1;
+  function tick(){
+    var left = Math.max(0, endsAt - Date.now());
+    var n = Math.ceil(left / 1000);
+    if (n !== lastShown) {
+      lastShown = n;
+      var el = $('#cdNum');
+      if (el) {
+        el.textContent = n > 0 ? String(n) : 'GO!';
+        // 重置动画，让每一秒都有一次弹跳
+        el.style.animation = 'none';
+        void el.offsetWidth;
+        el.style.animation = '';
+      }
+    }
+    if (left <= 0 && cdTimer) { clearInterval(cdTimer); cdTimer = null; }
+  }
+  tick();
+  cdTimer = setInterval(tick, 100);
 }
 
-/* ---------- 启动 ---------- */
+/* ---------- 启动（全流程容错：任何一步失败都不能留下空白/卡死页面） ---------- */
+var _booted = false;
+function bootMsg(t){ var el = document.getElementById('boot-msg'); if (el) el.textContent = t; }
+function clearSplash(){
+  var sp = document.getElementById('boot-splash');
+  if (sp && sp.parentNode) sp.parentNode.removeChild(sp);
+}
+/* 终极兜底界面：出错时给出可点的恢复入口，而不是让用户对着白屏/转圈发呆 */
+function showFatal(msg, detail){
+  try {
+    var el = document.getElementById('app');
+    if (!el) return;
+    el.innerHTML = '<div style="min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center">' +
+      '<div style="font-size:38px;line-height:1">😵</div>' +
+      '<div style="font-size:16px;font-weight:700;color:var(--ink)">' + esc(msg || '页面出了点问题') + '</div>' +
+      (detail ? '<div style="font-size:12.5px;color:var(--sub);max-width:32em;line-height:1.7">' + esc(String(detail).slice(0, 200)) + '</div>' : '') +
+      '<button onclick="location.reload()" style="margin-top:6px;border:none;border-radius:14px;padding:13px 26px;font-size:15px;font-weight:700;color:#fff;background:var(--grad)">重新加载</button>' +
+      '<button onclick="try{localStorage.removeItem(\'vpk_token\')}catch(e){};location.reload()" style="border:1.5px solid var(--line);background:var(--card);color:var(--sub);border-radius:14px;padding:11px 22px;font-size:13.5px">清除登录态并重载</button>' +
+      '</div>';
+  } catch (e) {}
+}
+/* 未捕获异常 / 未处理 Promise 拒绝：只要还没成功渲染出界面，就给出恢复入口 */
+window.addEventListener('error', function(e){ if (!_booted) showFatal('页面加载出错', (e && e.message) || ''); });
+window.addEventListener('unhandledrejection', function(e){
+  if (_booted) return;
+  var r = e && e.reason;
+  showFatal('页面加载出错', (r && (r.message || r)) || '');
+});
+/* 给任意 Promise 加超时：Render 冷启动/弱网时不能无限等下去 */
+function withTimeout(p, ms, fallback){
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise(function(res){ setTimeout(function(){ res(fallback); }, ms); })
+  ]);
+}
 function boot(){
-  applyTheme();
-  loadLocalBooks().then(function(books){
-    if (books) BOOKS = books.map(function(b){ return { id: b.id, name: b.name, count: (b.words || []).length, lang: b.lang || 'en' }; });
-    else return api('/api/books').then(function(d){ BOOKS = d.books; }).catch(function(){});
-  }).then(function(){
-    return api('/api/info').then(function(d){ INFO = d; }).catch(function(){});
-  }).then(function(){
-    if (!token) { renderAuth(); return; }
-    // 已有令牌：校验有效性并取回账号信息（S3：只有服务器明确返回 401 才清 token；
-    // 网络错误/服务器冷启动/弱网一律保留登录态并自动重试，避免「明明有账号却被强制登出」）
-    return fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(function(r){
-        if (r.status === 401) { token = ''; localStorage.removeItem('vpk_token'); renderAuth(); return; }
-        return r.json().catch(function(){ return {}; }).then(function(d){
-          if (d && d.username) { account = { username: d.username, name: d.name }; startInviteWatcher(); renderHome(); }
-          else { token = ''; localStorage.removeItem('vpk_token'); renderAuth(); }
+  try { applyTheme(); } catch (e) {}
+  bootMsg('正在载入词书…');
+  withTimeout(loadLocalBooks().catch(function(){ return null; }), 8000, null)
+    .catch(function(){ return null; })
+    .then(function(books){
+      if (books && books.length) {
+        BOOKS = books.map(function(b){ return { id: b.id, name: b.name, count: (b.words || []).length, lang: b.lang || 'en' }; });
+        return;
+      }
+      return withTimeout(api('/api/books'), 12000, null).then(function(d){ if (d && d.books) BOOKS = d.books; }).catch(function(){});
+    })
+    .catch(function(){})
+    .then(function(){
+      bootMsg('正在连接服务器…');
+      return withTimeout(api('/api/info').then(function(d){ INFO = d; }).catch(function(){}), 8000, null);
+    })
+    .catch(function(){})
+    .then(function(){
+      if (!token) { _booted = true; clearSplash(); renderAuth(); return; }
+      // 已有令牌：校验有效性并取回账号信息（S3：只有服务器明确返回 401 才清 token；
+      // 网络错误/服务器冷启动/弱网一律保留登录态并自动重试，避免「明明有账号却被强制登出」）
+      bootMsg('正在恢复登录…');
+      return withTimeout(fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } }), 12000, null)
+        .then(function(r){
+          if (!r) throw new Error('timeout');
+          if (r.status === 401) { token = ''; try { localStorage.removeItem('vpk_token'); } catch(e){} _booted = true; clearSplash(); renderAuth(); return; }
+          return r.json().catch(function(){ return {}; }).then(function(d){
+            _booted = true; clearSplash();
+            if (d && d.username) { account = { username: d.username, name: d.name }; startInviteWatcher(); renderHome(); }
+            else { token = ''; try { localStorage.removeItem('vpk_token'); } catch(e){} renderAuth(); }
+          });
+        })
+        .catch(function(){
+          // 网络异常/超时：保留登录态，先给出可用界面并在后台重试，绝不让用户卡在白屏
+          if (typeof toast === 'function') toast('网络较慢，已保留登录态，正在重试…');
+          _booted = true; clearSplash();
+          if (token && !account) { setTimeout(boot, 5000); renderAuth(); }
+          else renderHome();
         });
-      })
-      .catch(function(){
-        // 网络异常：保留登录态，不清 token，5s 后自动重试
-        if (typeof toast === 'function') toast('网络异常，登录态已保留，稍后将自动重试');
-        if (token && !account) setTimeout(boot, 5000);
-        renderAuth();
-      });
-  });
+    })
+    .catch(function(e){
+      // 终极兜底：任何意外都尽量给出界面，而不是空白
+      _booted = true; clearSplash();
+      try { if (!token) renderAuth(); else renderHome(); }
+      catch (e2) { showFatal('页面初始化失败', (e2 && e2.message) || (e && e.message) || ''); }
+    });
+}
+/* 词书大文件（约 0.9MB）改为后台异步加载：不再阻塞首屏渲染（手机白屏/卡载入的主因之一）。
+   加载完成后再升级为本地判题数据；即便加载失败，也照样能用服务端判题。 */
+function loadBooksBundleAsync(){
+  try {
+    if (window.__VOCAB_BOOKS__) return;
+    var s = document.createElement('script');
+    s.src = '/books.bundle.js';
+    s.async = true;
+    s.onerror = function(){};
+    s.onload = function(){
+      try {
+        loadLocalBooks().then(function(b){
+          if (b && b.length) BOOKS = b.map(function(x){ return { id: x.id, name: x.name, count: (x.words || []).length, lang: x.lang || 'en' }; });
+        }).catch(function(){});
+      } catch (e) {}
+    };
+    document.head.appendChild(s);
+  } catch (e) {}
 }
 boot();
+setTimeout(loadBooksBundleAsync, 60);
 </script>
 <script>
 /* 注册 Service Worker：让网页可「添加到主屏幕」当作 App 安装，并支持离线打开首页 */

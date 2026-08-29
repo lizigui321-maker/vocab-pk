@@ -90,11 +90,28 @@ async function main() {
   ok(s1.players.length === 2, '房间内 2 名玩家');
   ok(s1.players.every((p) => p.connected === true), '纯轮询玩家绿点全部在线（connected=true）');
 
-  console.log('== 5. 对战作答：立即公布 + 正确计分 ==');
-  const st = await api('/api/start', { roomId: roomId, playerId: pidA });
-  ok(st.status === 200, '房主开始游戏');
+  /* 新规则：全员「准备」后房主才能开始，且开始时有 3 秒倒计时 */
+  console.log('== 5. 全员准备 + 3 秒倒计时 ==');
+  const early = await api('/api/start', { roomId: roomId, playerId: pidA });
+  ok(early.status === 400, '★ 有人未准备时房主无法开始（400）');
+  await api('/api/ready', { roomId: roomId, playerId: pidA });
   s1 = (await api('/api/state?roomId=' + roomId + '&playerId=' + pidA)).data;
-  ok(s1.phase === 'question' && s1.question, '进入答题阶段');
+  ok((s1.players.find((p) => p.id === pidA) || {}).ready === true, 'A 的准备状态已同步到房间');
+  const half = await api('/api/start', { roomId: roomId, playerId: pidA });
+  ok(half.status === 400, '★ 仍有 1 人未准备时依旧无法开始（400）');
+  await api('/api/ready', { roomId: roomId, playerId: pidB });
+  s1 = (await api('/api/state?roomId=' + roomId + '&playerId=' + pidA)).data;
+  ok(s1.allReady === true, '★ 全员准备后 allReady=true');
+  const st = await api('/api/start', { roomId: roomId, playerId: pidA });
+  ok(st.status === 200, '★ 全员准备后房主成功开始');
+  s1 = (await api('/api/state?roomId=' + roomId + '&playerId=' + pidA)).data;
+  ok(s1.phase === 'countdown', '★ 开始后先进入 countdown（3 秒倒计时）');
+  ok(typeof s1.countdownEndsAt === 'number' && s1.countdownEndsAt > Date.now(), '倒计时结束时刻已下发（各端一致）');
+
+  console.log('== 5. 对战作答：立即公布 + 正确计分 ==');
+  await sleep(3400); // 等倒计时走完
+  s1 = (await api('/api/state?roomId=' + roomId + '&playerId=' + pidA)).data;
+  ok(s1.phase === 'question' && s1.question, '★ 倒计时结束后进入答题阶段');
   await api('/api/answer', { roomId: roomId, playerId: pidA, qIndex: s1.qIndex, choice: 0 });
   s1 = (await api('/api/state?roomId=' + roomId + '&playerId=' + pidA)).data;
   ok(s1.question.myChoice === 0 && s1.question.myCorrect !== undefined, '已答玩家立即可见自己的对错');
@@ -122,7 +139,9 @@ async function main() {
 
   console.log('== 7. 超时未答：轮询玩家也应记生词（单人房） ==');
   const c2 = (await api('/api/create', { token: tokA, bookId: 'cet4', mode: 'word', count: 10 })).data;
+  await api('/api/ready', { roomId: c2.roomId, playerId: c2.playerId }); // 单人房也要先准备
   await api('/api/start', { roomId: c2.roomId, playerId: c2.playerId });
+  await sleep(3400); // 等 3 秒倒计时结束
   let sc = (await api('/api/state?roomId=' + c2.roomId + '&playerId=' + c2.playerId)).data;
   const qWord = sc.question.word;
   console.log('  等待本题超时（约 13 秒）…');

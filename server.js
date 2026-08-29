@@ -121,16 +121,32 @@ const UPSTASH_URL = (process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/+$/, '
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || '';
 const KV_ON = !!(UPSTASH_URL && UPSTASH_TOKEN && typeof fetch === 'function');
 const KV_PREFIX = 'vocabpk:v1:';
-/* kvUsable：云端是否可写。启动拉取失败时置为 false，本进程降级为「纯本地文件」模式，
-   并禁止用陈旧本地数据回灌覆盖云端（见 S2）。KV_ON 仅表示「已配置凭据」。 */
+/* ---- 实例租约：防止「旧实例用陈旧内存数据回写云端」覆盖新实例的数据（部署丢数据主因之一）。
+   每个实例启动后把自己的 id 写进 __lease__；退出（SIGTERM）时先读租约，若已被新实例接管，
+   则【绝不】回写——因为旧实例内存里是它启动那一刻的陈旧快照，写回去会抹掉新数据。
+   只在能【明确读到】别实例的租约时才让位；读不到（网络抖动）时保持「我仍是主」，
+   避免因一次抖动就彻底不写云端。 ---- */
+const INSTANCE_ID = Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
+let leaseOwner = true;
+/* kvUsable：云端是否可写。KV_ON 仅表示「已配置凭据」。 */
 let kvUsable = KV_ON;
-/* kvGet 必须区分三种情况：
-   - { ok:true, found:false } 云端该 key 真不存在（首次启用）→ 允许本地数据上传迁移
-   - { ok:true, found:true, value } 云端有值 → 用之
-   - { ok:false, error } 网络超时 / 5xx / DNS 失败 → 绝不能当作「不存在」去覆盖云端 */
-async function kvGet(key) {
+let kvLastError = null;    // 最近一次云端错误（供 /api/storage-status 诊断）
+let kvLastWriteAt = 0;
+const kvWriteQueue = [];   // 写入失败的重试队列（网络抖动不再静默丢数据）
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+/* 统一带超时的 fetch：Upstash 偶发慢响应/挂起时不能把启动流程卡死（原实现无超时 = 可能永久挂起） */
+function kvFetch(url, opts, ms) {
+  const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, ms || 6000) : null;
+  return Promise.race([
+    fetch(url, Object.assign({}, opts, ctrl ? { signal: ctrl.signal } : {})),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), (ms || 6000) + 800)),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+async function kvGetOnce(key, ms) {
   try {
-    const r = await fetch(UPSTASH_URL + '/get/' + encodeURIComponent(KV_PREFIX + key), { headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN } });
+    const r = await kvFetch(UPSTASH_URL + '/get/' + encodeURIComponent(KV_PREFIX + key),
+      { headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN } }, ms || 6000);
     if (!r.ok) return { ok: false, error: 'http_' + r.status };
     const d = await r.json().catch(() => ({}));
     if (d.result == null) return { ok: true, found: false, value: null };
@@ -138,23 +154,56 @@ async function kvGet(key) {
     catch (e) { return { ok: true, found: true, value: null }; }
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
-async function kvSet(key, data) {
-  if (!kvUsable) return;
+/* 读取带指数退避重试（默认 3 次）：一次网络抖动不再导致「整进程永久降级为本地文件模式 →
+   Render 清盘 → 数据全丢」。这是「明明做了处理却每次更新都丢」的根因。 */
+async function kvGet(key, tries, ms) {
+  const n = tries || 3;
+  let last = { ok: false, error: 'unknown' };
+  for (let i = 0; i < n; i++) {
+    last = await kvGetOnce(key, ms);
+    if (last.ok) { kvLastError = null; return last; }
+    kvLastError = last.error;
+    if (i < n - 1) await sleep(400 * Math.pow(2, i));
+  }
+  return last;
+}
+async function kvSetOnce(key, data) {
   try {
-    const r = await fetch(UPSTASH_URL + '/set/' + encodeURIComponent(KV_PREFIX + key), {
+    const r = await kvFetch(UPSTASH_URL + '/set/' + encodeURIComponent(KV_PREFIX + key), {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN, 'Content-Type': 'application/json' },
       body: JSON.stringify(JSON.stringify(data)),
-    });
-    if (!r.ok) console.error('[KV] 写入失败', key, r.status);
-  } catch (e) { console.error('[KV] 写入异常', key, (e && e.message) || e); }
+    }, 8000);
+    if (!r.ok) { kvLastError = 'http_' + r.status; return false; }
+    kvLastError = null; kvLastWriteAt = Date.now();
+    return true;
+  } catch (e) { kvLastError = String((e && e.message) || e); return false; }
 }
+/* 写入带重试 + 失败入队（后台定时重放）：抖动/限流不再静默丢数据 */
+async function kvSet(key, data) {
+  if (!kvUsable) return;
+  for (let i = 0; i < 3; i++) {
+    if (await kvSetOnce(key, data)) { kvLastWriteAt = Date.now(); return; }
+    await sleep(400 * Math.pow(2, i));
+  }
+  console.error('[KV] 写入失败，已入队待重试:', key, kvLastError);
+  for (let j = kvWriteQueue.length - 1; j >= 0; j--) if (kvWriteQueue[j].key === key) kvWriteQueue.splice(j, 1);
+  kvWriteQueue.push({ key: key, data: data, at: Date.now() });
+  if (kvWriteQueue.length > 40) kvWriteQueue.splice(0, kvWriteQueue.length - 40);
+}
+/* 后台重放失败写入；30 分钟仍失败则丢弃，避免无限堆积 */
+setInterval(async () => {
+  if (!kvUsable || !kvWriteQueue.length) return;
+  const item = kvWriteQueue[0];
+  if (await kvSetOnce(item.key, item.data)) { kvWriteQueue.shift(); console.log('[KV] 重试写入成功:', item.key); }
+  else if (Date.now() - item.at > 30 * 60 * 1000) { kvWriteQueue.shift(); console.error('[KV] 放弃重试:', item.key); }
+}, 20000);
 const kvTimers = {};
 /* 防抖合并：一次答题/操作只触发一次网络写。注意把 data 一并保存在定时器里，
    这样退出前 flush 的是「保存时刻」的快照，而不是进程退出时的全局变量（旧实例的全局
    可能还是它启动那一刻的陈旧数据，见 S1）。 */
 function kvSave(key, data) {
-  if (!kvUsable) return;
+  if (!kvUsable || !leaseOwner) return;
   if (kvTimers[key]) clearTimeout(kvTimers[key].t);
   kvTimers[key] = { t: setTimeout(() => { delete kvTimers[key]; kvSet(key, data); }, 400), data };
 }
@@ -175,7 +224,7 @@ function accountsReplacer(k, v) {
 }
 /* 启动时：启用云端持久化则以云端数据为准（本地文件在 Render 上部署即被清空）；
    云端为空（首次启用）时把本地现有数据上传，完成无缝迁移。 */
-async function loadStoreFromKV() {
+async function loadStoreFromKVOnce() {
   if (!KV_ON) return false;
   try {
     const [kAcc, kSes, kGrp, kRk] = await Promise.all([
@@ -229,38 +278,83 @@ async function loadStoreFromKV() {
     return false;
   }
 }
+/* 启动加载（带重试）：以前只读 1 次，失败就永久降级本地文件模式；Render 每次部署清空磁盘，
+   只要这一次读取抖动，整轮部署的数据就全没了 —— 这正是「明明做了处理却每次更新都丢」的根因。
+   现在最多重试 3 轮（约 12s），覆盖 Upstash 冷启动 / 瞬时 5xx / 网络抖动。 */
+async function loadStoreFromKV() {
+  if (!KV_ON) return false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const okLoaded = await loadStoreFromKVOnce();
+    if (okLoaded) return true;
+    if (attempt < 3) {
+      console.log('[存储] 云端读取失败（' + kvLastError + '），' + (attempt * 3) + 's 后重试 ' + attempt + '/3 …');
+      await sleep(attempt * 3000);
+    }
+  }
+  return false;
+}
+/* 租约：启动成功接管云端后登记本实例；退出前据此判断能否回写 */
+async function kvTakeLease() {
+  if (!kvUsable) return;
+  await kvSetOnce('__lease__', { id: INSTANCE_ID, at: Date.now() });
+  leaseOwner = true;
+}
+/* 退出前确认租约：只有「租约仍属于自己」才允许回写；已被新实例接管则绝不回写 */
+async function kvStillOwner() {
+  if (!kvUsable) return false;
+  const cur = await kvGet('__lease__', 2);
+  if (cur.ok && cur.found && cur.value && cur.value.id && cur.value.id !== INSTANCE_ID) return false;
+  return true; // 读不到/读失败时按「仍是主」处理，避免抖动导致完全不写
+}
 /* 进程退出前（Render 部署时会发 SIGTERM）：只把「仍在防抖队列里、代表最新一次保存动作」
    的写入落盘，绝不把进程当前的全局变量整库覆盖写回云端。
    原因（S1）：部署时新旧实例并存，旧实例内存里是它启动那一刻的陈旧快照；若把这份全局变量
    整库回写，会抹掉部署窗口内新实例产生的所有注册/学习/生词本变动。这里只 flush 真正的
    挂起写入（数据在保存那一刻就已捕获在定时器里），旧实例若无新请求则队列为空、什么都不写。 */
-async function kvFlush() {
-  if (!kvUsable) return;
-  const writes = [];
+/* 摘下挂起写入并停掉防抖定时器（必须先做，否则租约判定期间定时器会抢先写入陈旧数据） */
+function kvTakePending() {
+  const pending = [];
   for (const k of Object.keys(kvTimers)) {
     clearTimeout(kvTimers[k].t);
-    const d = kvTimers[k].data;
+    pending.push({ key: k, data: kvTimers[k].data });
     delete kvTimers[k];
-    writes.push(kvSet(k, d));
   }
+  return pending;
+}
+async function kvFlush(pending) {
+  const writes = (pending || []).map((p) => kvSet(p.key, p.data));
   if (!writes.length) return;
   try {
     await Promise.race([
       Promise.all(writes),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('kvFlush 超时')), 3000)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('kvFlush 超时')), 8000)),
     ]);
   } catch (e) { console.error('[KV] 退出前刷新失败', (e && e.message) || e); }
 }
-function gracefulShutdown(sig) {
-  // 退出前先刷新今日快照（此时内存里有最新数据），再 flush 云端写入（D3）
+/* 退出前留一点时间让 stdout 刷完：管道输出在 process.exit() 时可能被截断，
+   导致部署日志里看不到存储模式等关键信息（排查「数据去哪了」时最需要这些日志）。 */
+function exitAfterFlush(code) { setTimeout(() => process.exit(code), 60); }
+async function gracefulShutdown(sig) {
+  // 退出前先刷新今日快照（此时内存里有最新数据），再处理云端写入（D3）
   try { writeSnapshot(); } catch (e) {}
-  // kvFlush 内部自带 3s 总超时，不会因网络慢而卡死进程
-  kvFlush().then(() => process.exit(0)).catch(() => process.exit(0));
+  // 1) 先摘下挂起写入，防止判定租约的几百毫秒里防抖定时器抢先把陈旧数据写出去
+  const pending = kvTakePending();
+  if (!pending.length) { exitAfterFlush(0); return; }
+  // 2) 关键：确认自己仍是云端租约持有者。若新实例已接管（部署场景），本实例内存里是
+  //    启动那一刻的陈旧快照，此时回写会把部署窗口内新实例产生的数据全部抹掉 —— 宁可不写。
+  const owner = await kvStillOwner();
+  if (!owner) {
+    console.log('[存储] 检测到新实例已接管云端，放弃本次退出回写（保护新数据不被陈旧快照覆盖）');
+    exitAfterFlush(0);
+    return;
+  }
+  await kvFlush(pending);
+  exitAfterFlush(0);
 }
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => { gracefulShutdown('SIGTERM').catch(() => process.exit(0)); });
+process.on('SIGINT', () => { gracefulShutdown('SIGINT').catch(() => process.exit(0)); });
 /* beforeExit 兜底：进程正常退出（无 SIGTERM，如脚本结束）时也要把挂起的云端写入落盘 */
-process.on('beforeExit', () => { if (kvUsable && Object.keys(kvTimers).length) kvFlush(); });
+process.on('beforeExit', () => { if (kvUsable && Object.keys(kvTimers).length) kvFlush(kvTakePending()); });
 
 /* ================= 单词词典（音标 / 释义 / 例句 / 搭配） =================
  * 数据来源（服务端拉取，避免浏览器直连被 CORS / 网络策略拦掉）：
@@ -283,6 +377,123 @@ function saveDict() {
     for (const k of keys.slice(0, Math.ceil(keys.length / 2))) delete dictCache[k];
   }
   saveJSON(DICT_FILE, dictCache);
+}
+
+/* ---------- 离线词书索引：所有内置词书自带的「词性 + 中文释义」----------
+ * 背景：词典详情原先只能靠联网查有道 / dictionaryapi.dev，而 Render 每次部署会清空磁盘，
+ *       导致 store/dict.json 缓存全丢 → 每个词都要重新联网 → 慢、且网络不通时直接不显示。
+ * 方案：public/data/books.json 是随代码发布的静态文件，内含 1.4 万词的「词性+释义」。
+ *       启动时在内存里建索引，查询时【零网络、即时】返回；外部 API 只用于补充音标/例句。 */
+const BOOKS_FILE = path.join(PUB, 'data', 'books.json');
+const bookIndex = new Map(); // 'en:word' -> { word, lang, senses:[{pos,def}], src:'book' }
+function parseBookMeaning(s) {
+  const t = String(s == null ? '' : s).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  if (!t) return { pos: '', def: '' };
+  const m = t.match(/^([a-zA-Z]+\.?)\s+(.+)$/);
+  if (m) return { pos: m[1].replace(/\.$/, ''), def: m[2] };
+  return { pos: '', def: t };
+}
+function buildBookIndex() {
+  let n = 0;
+  try {
+    const raw = JSON.parse(fs.readFileSync(BOOKS_FILE, 'utf8'));
+    if (!Array.isArray(raw)) return 0;
+    for (const b of raw) {
+      const lang = (b && b.lang === 'es') ? 'es' : 'en';
+      const ws = (b && b.words) || [];
+      for (const it of ws) {
+        if (!Array.isArray(it) || typeof it[0] !== 'string') continue;
+        const w = it[0].trim();
+        if (!w) continue;
+        const p = parseBookMeaning(it[1]);
+        if (!p.def) continue;
+        const key = lang + ':' + w.toLowerCase();
+        const prev = bookIndex.get(key);
+        if (!prev) {
+          // 字段形状与联网富化结果保持一致，前端无需区分来源
+          bookIndex.set(key, { word: w, lang: lang, ipa: '', audio: '', senses: [{ pos: p.pos, def: p.def }], forms: [], phrases: [], examples: [], exams: [], src: 'book' });
+        } else if (prev.senses.length < 4 && !prev.senses.some((s) => s.def === p.def)) {
+          prev.senses.push({ pos: p.pos, def: p.def }); // 同一词在不同词书里的补充义项
+        }
+        n++;
+      }
+    }
+  } catch (e) { console.error('[词典] 词书索引构建失败', (e && e.message) || e); }
+  return n;
+}
+const BOOK_INDEX_SIZE = buildBookIndex();
+
+/* ---------- 词典富化结果的云端分片缓存 ----------
+ * 外部 API 补来的音标/例句等富化数据存进 Upstash（按 语言+首字母 分片，避免单 key 过大）。
+ * 这样部署后缓存不丢，越用越全，最终几乎不再依赖实时联网。 */
+function dictShardKey(word, lang) {
+  const c = String(word || '').trim().toLowerCase().charAt(0);
+  const letter = /[a-z0-9]/.test(c) ? c : '_';
+  return 'dict:' + (lang === 'es' ? 'es' : 'en') + ':' + letter;
+}
+const dictShardsLoaded = new Set();
+const dictShardTimers = {};
+/* 按需拉取分片（只在该分片首次被用到时消耗一次 KV 读） */
+async function loadDictShard(word, lang, ms) {
+  const sk = dictShardKey(word, lang);
+  if (dictShardsLoaded.has(sk)) return;
+  dictShardsLoaded.add(sk); // 先标记，避免并发重复拉取
+  if (!kvUsable) return;
+  // 只拉 1 次、可设短超时：查词路径上不能因云端慢而卡住（超时就当没缓存，走离线词书）
+  const r = await kvGet(sk, 1, ms || 6000);
+  if (r.ok && r.found && r.value && typeof r.value === 'object') {
+    for (const k of Object.keys(r.value)) if (!dictCache[k]) dictCache[k] = r.value[k];
+  }
+}
+/* 富化结果写回云端分片（防抖合并，避免每个词一次网络写） */
+function saveDictShard(word, lang) {
+  const sk = dictShardKey(word, lang);
+  if (!kvUsable) return;
+  if (dictShardTimers[sk]) clearTimeout(dictShardTimers[sk]);
+  dictShardTimers[sk] = setTimeout(async () => {
+    delete dictShardTimers[sk];
+    const shard = {};
+    const prefix = (lang === 'es' ? 'es' : 'en') + ':';
+    for (const k of Object.keys(dictCache)) {
+      if (k.startsWith(prefix) && dictShardKey(k.slice(prefix.length), lang) === sk) shard[k] = dictCache[k];
+    }
+    await kvSet(sk, shard);
+  }, 4000);
+}
+/* 后台限速富化：对已有词书释义、但缺音标/例句的词，慢慢联网补齐并存库。
+   严格限速，既保护外部 API，也避免打爆 Upstash 免费额度。 */
+const enrichQueue = [];
+const enrichSeen = new Set();
+let enrichRunning = false;
+let enrichCount = 0;
+let enrichHourStart = Date.now();
+const ENRICH_MAX_PER_HOUR = 240;
+function scheduleEnrich(word, lang) {
+  const key = dictKey(word, lang);
+  const cur = dictCache[key];
+  if (cur && cur.ipa) return;              // 已有音标，认为已富化
+  if (enrichSeen.has(key)) return;
+  enrichSeen.add(key);
+  enrichQueue.push({ word: word, lang: lang });
+  if (enrichQueue.length > 400) enrichQueue.shift();
+  startEnrich();
+}
+async function startEnrich() {
+  if (enrichRunning) return;
+  enrichRunning = true;
+  try {
+    while (enrichQueue.length) {
+      if (Date.now() - enrichHourStart > 3600000) { enrichHourStart = Date.now(); enrichCount = 0; }
+      if (enrichCount >= ENRICH_MAX_PER_HOUR) break;
+      const item = enrichQueue.shift();
+      if (!item) break;
+      try {
+        const d = await _fetchWordDetail(item.word, dictKey(item.word, item.lang), item.lang);
+        if (d) { enrichCount++; saveDictShard(item.word, item.lang); }
+      } catch (e) { /* 富化失败不影响用户，下次再说 */ }
+      await sleep(700);
+    }
+  } finally { enrichRunning = false; }
 }
 function fetchJSON(url, ms) {
   const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
@@ -464,20 +675,38 @@ function buildDetail(word, lang, parsed, src) {
 const dictInFlight = new Map(); // key -> [promise]
 let dictConcurrent = 0;
 const DICT_MAX_CONCURRENT = 4;
+/* 查询顺序（关键：前 3 步都不依赖实时联网，保证「不延迟、不失败」）：
+   1) 内存富化缓存      2) Upstash 云端分片富化缓存（短超时，超时就跳过）
+   3) 离线词书索引（1.4 万词，零网络即时返回「词性+释义」，音标后台慢慢补）
+   4) 都不命中（自定义词书等）才走外部网络，失败也只是没有音标，不会报错 */
 async function getWordDetail(word, lang) {
   const key = dictKey(word, lang);
-  const hit = dictCache[key];
-  const NEG_TTL = 30 * 60 * 1000; // 查不到的词 30 分钟内不再重复打网络
-  if (hit && typeof hit === 'object') {
-    if ((hit.senses || []).length) return hit;
-    if (hit.neg && Date.now() - (hit.at || 0) < NEG_TTL) return null;
-  }
   const w = String(word || '').trim();
   if (!w) return null;
+  const NEG_TTL = 30 * 60 * 1000; // 查不到的词 30 分钟内不再重复打网络
+
+  // 1) 内存富化缓存
+  let hit = dictCache[key];
+  if (hit && typeof hit === 'object' && (hit.senses || []).length) return hit;
+
+  // 2) 云端分片富化缓存（首次访问某分片才消耗一次 KV 读，且最多等 1.2s）
+  await loadDictShard(w, lang, 1200);
+  hit = dictCache[key];
+  if (hit && typeof hit === 'object' && (hit.senses || []).length) return hit;
+
+  // 3) 离线词书索引：即时返回，音标/例句交给后台富化
+  const bk = bookIndex.get(key);
+  if (bk && (bk.senses || []).length) {
+    scheduleEnrich(w, lang);
+    return bk;
+  }
+
+  // 4) 外部网络（自定义词书里的词）
+  if (hit && typeof hit === 'object' && hit.neg && Date.now() - (hit.at || 0) < NEG_TTL) return null;
   if (dictInFlight.has(key)) return dictInFlight.get(key); // 正在查：复用同一个 Promise
   const p = _fetchWordDetail(w, key, lang);
   dictInFlight.set(key, p);
-  p.then(() => dictInFlight.delete(key), () => dictInFlight.delete(key));
+  p.then(() => { dictInFlight.delete(key); saveDictShard(w, lang); }, () => dictInFlight.delete(key));
   return p;
 }
 async function _fetchWordDetail(w, key, lang) {
@@ -760,6 +989,7 @@ function studyOverview(acc) {
     plan: st.plan, bookId: book.id, bookName: book.name,
     total: list.length, rawTotal: book.words.length, skipped, unitSize: UNIT_SIZE,
     learned, mastered, due, wrongCount: (acc.words || []).length, knownCount: (acc.known || []).length,
+    review: reviewStats(acc),   // 智能复习统计：待复习/易错/已掌握
     today: { new: lg.new, review: lg.review, wrong: lg.wrong, dailyNew: st.plan.dailyNew, newRemaining: Math.max(0, st.plan.dailyNew - lg.new), newPoolRemaining: Math.max(0, list.length - learned) },
     streak: streakOf(st), units, log30,
     books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })).concat(custom),
@@ -959,7 +1189,7 @@ function newRoom({ bookId, mode, count }) {
   const id = roomCode();
   const room = {
     id,
-    phase: 'lobby',            // lobby | question | reveal | result
+    phase: 'lobby',            // lobby | countdown | question | reveal | result
     players: new Map(),
     settings: { bookId, mode, count },
     questions: [],
@@ -970,6 +1200,8 @@ function newRoom({ bookId, mode, count }) {
     roundMs: 0,
     lastResult: null,
     emptySince: 0,
+    countdownEndsAt: 0,        // 开局 3 秒倒计时的结束时刻（phase === 'countdown' 时有效）
+    history: [],               // 本局每题结果，供结算「单词总览面板」使用
   };
   rooms.set(id, room);
   return room;
@@ -977,7 +1209,7 @@ function newRoom({ bookId, mode, count }) {
 
 function addPlayer(room, name, isHost, username) {
   const id = uid();
-  room.players.set(id, { id, name, username: username || '', score: 0, correctCount: 0, isHost: !!isHost, isNew: true, res: null, ping: null, lastSeen: Date.now(), seenInRound: false });
+  room.players.set(id, { id, name, username: username || '', score: 0, correctCount: 0, isHost: !!isHost, isNew: true, res: null, ping: null, lastSeen: Date.now(), seenInRound: false, ready: false });
   return room.players.get(id);
 }
 
@@ -1000,9 +1232,15 @@ function view(room, playerId) {
     players: [...room.players.values()].map((p) => ({
       id: p.id, name: p.name, score: p.score, correctCount: p.correctCount,
       isHost: p.isHost, isNew: p.isNew, connected: isOnline(p), answered: room.answered.has(p.id),
+      ready: !!p.ready,
     })),
     you: playerId,
+    allReady: room.players.size > 0 && [...room.players.values()].every((p) => p.ready),
   };
+  // 开局倒计时：所有人都能看到同一个「3、2、1」，避免各端计时不一致造成的抢跑
+  if (room.phase === 'countdown') v.countdownEndsAt = room.countdownEndsAt;
+  // 结算阶段：带上本局单词总览（供「一键加生词本」面板使用）
+  if (room.phase === 'result') v.history = room.history || [];
   if ((room.phase === 'question' || room.phase === 'reveal') && room.questions[room.qIndex]) {
     const q = room.questions[room.qIndex];
     v.question = { index: room.qIndex, word: q.word, options: q.options };
@@ -1033,12 +1271,24 @@ function broadcast(room) {
   }
 }
 
+const COUNTDOWN_MS = 3000;
+/* 开局 3 秒倒计时：先进入 countdown 阶段广播给所有人，到点再真正发题。
+   用服务端统一的时间戳，保证各端看到的「3、2、1」一致，不会有人抢跑。 */
+function startCountdown(room) {
+  clearTimeout(room.timer);
+  room.phase = 'countdown';
+  room.countdownEndsAt = Date.now() + COUNTDOWN_MS;
+  broadcast(room);
+  room.timer = setTimeout(() => { if (room.phase === 'countdown') startGame(room); }, COUNTDOWN_MS);
+}
 function startGame(room) {
   clearTimeout(room.timer);
   room.questions = genQuestions(room.settings.bookId, room.settings.count);
   room.qIndex = -1;
   room.lastResult = null;
-  for (const p of room.players.values()) { p.score = 0; p.correctCount = 0; p.isNew = false; }
+  room.history = [];           // 本局每题结果（结算面板用）
+  room.countdownEndsAt = 0;
+  for (const p of room.players.values()) { p.score = 0; p.correctCount = 0; p.isNew = false; p.ready = false; }
   nextQuestion(room);
 }
 
@@ -1078,6 +1328,78 @@ function recordWrong(player, q, bookName, lang, at) {
   saveAccounts();
 }
 
+/* 智能复习队列：按「遗忘曲线 + 错误率」综合打分，挑出此刻最该复习的词。
+   分数越高越紧急：超期时长（小时）+ 错误次数×3 + (3-掌握等级)×2 —— 越久没看、越常错、越不熟，越靠前。
+   来源：① 生词本中未掌握的词 ② 学习进度里已到期需巩固的词。
+   若到期的都复习完了，则退而取「最薄弱」的词继续巩固，并在 stats.caughtUp 标记，前端可提示。 */
+function buildReviewQueue(acc, st, limit) {
+  const now = Date.now();
+  const pr = st.progress || {};
+  const cands = [];
+  const seen = new Set();
+  const scoreOf = (p) => {
+    if (!p) return 1000;                                   // 完全没学过：最优先
+    const overdueH = p.due ? Math.max(0, now - p.due) / 3600000 : 999;
+    return overdueH + (p.wrong || 0) * 3 + (3 - Math.min(p.lv || 0, 3)) * 2;
+  };
+  // ① 生词本（用户明确标记要背的），跳过已掌握
+  for (const x of (acc.words || [])) {
+    const k = wordKey(x.word);
+    if (seen.has(k)) continue;
+    const p = pr[k];
+    if (p && (p.lv || 0) >= MASTER_LV) continue;            // 已掌握，不再进复习
+    seen.add(k);
+    cands.push({ word: x.word, meaning: x.meaning, lang: x.lang || 'en', score: scoreOf(p), due: (p && p.due) || 0, lv: (p && p.lv) || 0, wrong: (p && p.wrong) || 0, src: 'wrong' });
+  }
+  // ② 学习进度中已到期、未掌握的词
+  for (const [k, p] of Object.entries(pr)) {
+    if (!p || !p.n || (p.lv || 0) >= MASTER_LV) continue;
+    if (seen.has(k)) continue;
+    if (p.due && p.due > now) continue;                     // 还没到复习时间
+    const info = WORD_INFO.get(k);
+    if (!info) continue;
+    seen.add(k);
+    cands.push({ word: info.word, meaning: info.meaning, lang: info.lang || 'en', score: scoreOf(p), due: p.due || 0, lv: p.lv || 0, wrong: p.wrong || 0, src: 'srs' });
+  }
+  cands.sort((a, b2) => b2.score - a.score);
+  // 统计：到期数 = 已过复习时间的；薄弱词 = 错过 1 次以上的
+  let dueCount = 0, weakCount = 0;
+  for (const c of cands) {
+    if (!c.due || c.due <= now) dueCount += 1;
+    if (c.wrong >= 1) weakCount += 1;
+  }
+  const picked = cands.slice(0, Math.max(1, Math.min(200, limit || 50)));
+  return {
+    queue: picked.map((c) => ({ word: c.word, meaning: c.meaning, lang: c.lang })),
+    stats: {
+      total: cands.length,          // 待复习总数
+      picked: picked.length,        // 本组数量
+      dueCount: dueCount,           // 已到期
+      weakCount: weakCount,         // 易错词
+      wrongCount: (acc.words || []).length,
+      caughtUp: dueCount === 0 && cands.length > 0, // 到期的都复习完了，本组是额外巩固
+    },
+  };
+}
+/* 复习概览统计（供首页/复习入口展示「还有多少词要复习」） */
+function reviewStats(acc) {
+  const st = getStudy(acc);
+  const now = Date.now();
+  let due = 0, weak = 0, mastered = 0;
+  for (const p of Object.values(st.progress || {})) {
+    if (!p || !p.n) continue;
+    if ((p.lv || 0) >= MASTER_LV) { mastered += 1; continue; }
+    if (!p.due || p.due <= now) due += 1;
+    if ((p.wrong || 0) >= 1) weak += 1;
+  }
+  // 生词本里还没进学习进度（完全没学过）的词，也该算「待复习」
+  for (const x of (acc.words || [])) {
+    const p = (st.progress || {})[wordKey(x.word)];
+    if (!p || !p.n) due += 1;
+  }
+  return { due: due, weak: weak, mastered: mastered, wordbookCount: (acc.words || []).length };
+}
+
 function reveal(room) {
   clearTimeout(room.timer);
   if (room.phase !== 'question') return;
@@ -1097,6 +1419,19 @@ function reveal(room) {
     if ((isOnline(p) || p.seenInRound) && !room.answered.has(p.id)) recordWrong(p, q, bookName, bookLang, now);
   }
   room.lastResult = { qIndex: room.qIndex, correctIndex: q.correctIndex, word: q.word, meaning: q.meaning, results };
+  /* 记录本局每一题：结算时给出一个「单词总览面板」，可勾选任意词加入生词本
+     （包括答对的词——想再巩固也可以，这是对「只能记错词」的补充）。 */
+  if (!Array.isArray(room.history)) room.history = [];
+  room.history.push({
+    qIndex: room.qIndex,
+    word: q.word,
+    meaning: q.meaning,
+    lang: bookLang,
+    bookName: bookName,
+    options: q.options,
+    correctIndex: q.correctIndex,
+    results: results,   // playerId -> {choice, correct, gained}（前端可用 v.you 取自己的）
+  });
   broadcast(room);
   room.timer = setTimeout(() => nextQuestion(room), REVEAL_MS);
 }
@@ -1568,8 +1903,40 @@ const server = http.createServer(async (req, res) => {
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以开始游戏' });
-      startGame(room);
+      if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '当前阶段无法开始' });
+      // 所有人（含房主自己）都必须先准备，避免有人还在看手机就被直接拉进对战
+      const notReady = [...room.players.values()].filter((x) => !x.ready);
+      if (notReady.length) {
+        return send(res, 400, { error: '还有 ' + notReady.length + ' 人未准备：' + notReady.map((x) => x.name).join('、') });
+      }
+      startCountdown(room);
       return send(res, 200, { ok: true });
+    }
+    /* 玩家准备 / 取消准备（全员准备后房主才能开始） */
+    if (req.method === 'POST' && p === '/api/ready') {
+      const b = await readBody(req);
+      const room = rooms.get(b.roomId);
+      const pl = room && room.players.get(b.playerId);
+      if (!room || !pl) return send(res, 404, { error: '房间不存在' });
+      if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '游戏进行中，无需准备' });
+      pl.ready = (b.ready === undefined) ? !pl.ready : !!b.ready;
+      broadcast(room);
+      return send(res, 200, { ok: true, ready: pl.ready });
+    }
+    /* 房主在房间内直接改词书 / 模式 / 题数；改动后所有人回到未准备，需重新确认 */
+    if (req.method === 'POST' && p === '/api/room/settings') {
+      const b = await readBody(req);
+      const room = rooms.get(b.roomId);
+      const pl = room && room.players.get(b.playerId);
+      if (!room || !pl) return send(res, 404, { error: '房间不存在' });
+      if (!pl.isHost) return send(res, 403, { error: '只有房主可以修改房间设置' });
+      if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '游戏进行中，不能修改设置' });
+      if (b.bookId && BOOKS.some((x) => x.id === b.bookId)) room.settings.bookId = b.bookId;
+      if (b.mode === 'listen' || b.mode === 'word') room.settings.mode = b.mode;
+      if ([10, 20, 30].includes(Number(b.count))) room.settings.count = Number(b.count);
+      for (const p of room.players.values()) p.ready = false; // 设置变了，大家重新确认
+      broadcast(room);
+      return send(res, 200, { ok: true, settings: room.settings });
     }
     if (req.method === 'POST' && p === '/api/answer') {
       const b = await readBody(req);
@@ -1589,7 +1956,12 @@ const server = http.createServer(async (req, res) => {
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以再来一局' });
-      startGame(room);
+      // 与开局保持一致：全员准备后才开始，并走 3 秒倒计时
+      const notReady = [...room.players.values()].filter((x) => !x.ready);
+      if (notReady.length) {
+        return send(res, 400, { error: '还有 ' + notReady.length + ' 人未准备：' + notReady.map((x) => x.name).join('、') });
+      }
+      startCountdown(room);
       return send(res, 200, { ok: true });
     }
     // ---------------- 账号个人生词本 ----------------
@@ -1597,6 +1969,38 @@ const server = http.createServer(async (req, res) => {
       const acc = authUser(tokenOf(req, u));
       if (!acc) return send(res, 401, { error: '请先登录' });
       return send(res, 200, { words: acc.words || [], username: acc.username });
+    }
+    /* 手动收录生词（支持批量）：用于 PK 结算的「单词总览面板」——
+       用户可以勾选任意词加入生词本，包括那些答对的词（想再巩固也行）。
+       注意：这是「主动收藏」，不像答错那样把学习进度等级清零。 */
+    if (req.method === 'POST' && p === '/api/mywords/add') {
+      const b = await readBody(req);
+      if (b.__tooLarge) return send(res, 413, { error: '请求体过大' });
+      const acc = authUser(tokenOf(req, u, b));
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      let list = Array.isArray(b.words) ? b.words : [b];
+      if (list.length > 200) list = list.slice(0, 200);
+      const now = Date.now();
+      let added = 0, skipped = 0;
+      const cur = acc.words = acc.words || [];
+      for (const it of list) {
+        if (!it || typeof it.word !== 'string') continue;
+        const w = String(it.word).trim().slice(0, 64);
+        if (!w) continue;
+        const key = w.toLowerCase();
+        if (cur.some((x) => String(x.word).toLowerCase() === key)) { skipped += 1; continue; }
+        cur.unshift({
+          word: w,
+          meaning: typeof it.meaning === 'string' ? String(it.meaning).slice(0, 200) : '',
+          book: typeof it.book === 'string' ? String(it.book).slice(0, 40) : '',
+          lang: it.lang === 'es' ? 'es' : 'en',
+          at: now,
+        });
+        added += 1;
+      }
+      if (cur.length > 500) cur.length = 500;
+      if (added) saveAccounts();
+      return send(res, 200, { ok: true, added: added, skipped: skipped, total: cur.length });
     }
     if (req.method === 'DELETE' && p === '/api/mywords') {
       const acc = authUser(tokenOf(req, u));
@@ -1611,6 +2015,34 @@ const server = http.createServer(async (req, res) => {
       }
       saveAccounts();
       return send(res, 200, { ok: true, count: acc.words.length });
+    }
+    /* 存储诊断：确认当前是「云端持久化」还是「本地文件（Render 部署即清空=会丢）」模式。
+       需登录后查看，且只返回状态计数，不含任何凭据。 */
+    if (req.method === 'GET' && p === '/api/storage-status') {
+      const acc = authUser(tokenOf(req, u));
+      if (!acc) return send(res, 401, { error: '请先登录' });
+      // 实时查一次租约：能直接看出「本实例是否仍是云端持有者」（部署排障用）
+      const isOwner = kvUsable ? await kvStillOwner() : false;
+      const lease = kvUsable ? await kvGet('__lease__', 1, 3000) : { ok: false };
+      return send(res, 200, {
+        ok: true,
+        mode: kvUsable ? 'cloud' : 'local',
+        kvConfigured: KV_ON,
+        kvUsable: kvUsable,
+        leaseOwner: leaseOwner,
+        isCurrentOwner: isOwner,
+        leaseHolder: (lease.ok && lease.found && lease.value && lease.value.id) ? String(lease.value.id).slice(0, 8) : null,
+        self: String(INSTANCE_ID).slice(0, 8),
+        accounts: Object.keys(accounts).length,
+        sessions: Object.keys(sessions).length,
+        groups: Object.keys(groups).length,
+        pendingWrites: Object.keys(kvTimers).length,
+        queuedRetries: kvWriteQueue.length,
+        lastError: kvLastError,
+        lastWriteAt: kvLastWriteAt,
+        instance: String(INSTANCE_ID).slice(0, 8),
+        uptimeSec: Math.round(process.uptime()),
+      });
     }
     /* 单词详情：音标 / 分词性释义 / 例句 / 搭配（服务端拉取并长期缓存，前端不再直连第三方） */
     if (req.method === 'GET' && p === '/api/word') {
@@ -1738,9 +2170,12 @@ const server = http.createServer(async (req, res) => {
       let queue = [];
       let extra = {};
       if (mode === 'review') {
-        const words = (acc.words || []).slice(0, 100); // 生词本复习：最近答错在前
-        queue = words.map((x) => ({ word: x.word, meaning: x.meaning, lang: x.lang || 'en' }));
-        extra = { wrongCount: (acc.words || []).length };
+        /* 智能复习：不再是「生词本前 100 个」，而是按遗忘曲线综合打分挑最该复习的词。
+           打分 = 超期时长（越久没复习越急）+ 历史错误次数（老出错的优先）+ 掌握等级越低越优先。
+           覆盖两个来源：① 生词本里未掌握的词 ② 学习进度中已到期该巩固的词。 */
+        const rev = buildReviewQueue(acc, st, Number(u.searchParams.get('limit')) || 50);
+        queue = rev.queue;
+        extra = rev.stats;
       } else if (mode === 'unit') {
         const unit = Math.max(0, Number(u.searchParams.get('unit')) || 0);
         const { list } = filterKnown(book, st.plan.vocabEstimate);
@@ -1966,11 +2401,25 @@ const server = http.createServer(async (req, res) => {
 });
 
 /* 启动：若配置了云端持久化，先从云端拉取数据再对外服务，避免用空数据响应 */
-loadStoreFromKV().then(() => {
+loadStoreFromKV().then(async () => {
   if (!kvUsable) {
     // 纯本地文件模式：主数据丢了就用最近的每日快照恢复，避免「更新一次版本，账号全没了」
     restoreFromSnapshot();
     writeSnapshot();
+    /* 失声保护：部署平台上「只存本地磁盘」等同于「下次更新数据全丢」，必须大喊出来，
+       否则日志一闪而过就没人发现，直到用户集体丢号才暴露。 */
+    const onCloudHost = process.env.RENDER || process.env.RAILWAY || process.env.KOYEB || process.env.VERCEL;
+    if (onCloudHost) {
+      console.log('\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+      console.log('!! 严重警告：云端持久化【未生效】，数据目前只写在本地磁盘。');
+      console.log('!! 本平台每次更新版本都会清空磁盘 → 再更新一次用户数据就会全部丢失！');
+      console.log('!! 请立即检查环境变量：UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN');
+      console.log('!! 云端是否已配置：' + (KV_ON ? '已配置' : '未配置') + ' · 最近错误：' + (kvLastError || '无'));
+      console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n');
+    }
+  } else {
+    // 云端模式：登记本实例为租约持有者，让即将退出的旧实例放弃回写（防覆盖新数据）
+    await kvTakeLease();
   }
   server.listen(PORT, '0.0.0.0', () => {
   const onCloud = process.env.RENDER || process.env.RAILWAY || process.env.KOYEB || process.env.VERCEL || process.env.PORT;
@@ -1978,6 +2427,7 @@ loadStoreFromKV().then(() => {
   const ips = lanIPs();
   console.log('====================================');
   console.log('  背他喵的 · 背单词+单词对战 已启动');
+  console.log('  离线词典:  ' + BOOK_INDEX_SIZE + ' 条词书词条已建索引（内置词零网络即时显示）');
   console.log('====================================');
   if (!KV_ON) console.log('  存储模式:  本地文件（若部署平台清空磁盘数据会丢失，建议配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN）');
   if (onCloud) {

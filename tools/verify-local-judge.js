@@ -1,6 +1,6 @@
 /* 一次性验证：浏览器本地判题 == 服务器判定（连续 3 题） */
 'use strict';
-const BASE = 'http://localhost:3000';
+const BASE = process.env.BASE_URL || 'http://localhost:3000';
 const zlib = require('zlib');
 const fs = require('fs');
 const KEY = 'VOCABPK_S3CRET_KEY';
@@ -50,7 +50,10 @@ const U = (p) => 'vfy_' + p + Date.now().toString(36) + Math.random().toString(3
   const roomId = c.data.roomId, pidA = c.data.playerId;
   const j = await api('/api/join', { token: tokB, roomId });
   const pidB = j.data.playerId;
+  await api('/api/ready', { roomId, playerId: pidA }); // 全员准备后才能开始
+  await api('/api/ready', { roomId, playerId: pidB });
   await api('/api/start', { roomId, playerId: pidA });
+  await sleep(3400); // 3 秒倒计时
   console.log('房间 ' + roomId + ' 开局，两玩家就位，连续验证 3 题…');
 
   let allOk = true;

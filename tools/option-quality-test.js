@@ -70,9 +70,12 @@ async function main() {
   // PK 出题
   const created = await api('/api/create', { token: tok, bookId: 'cet4', mode: 'word', count: 20 });
   const rid = created.data.roomId, pid = created.data.playerId;
+  await api('/api/ready', { roomId: rid, playerId: pid }); // 全员准备后才能开始
   await api('/api/start', { roomId: rid, playerId: pid });
+  await new Promise((r) => setTimeout(r, 3400));           // 3 秒倒计时
   const st = (await api('/api/state?roomId=' + rid + '&playerId=' + pid)).data;
   if (st.question) checkQuestion(st.question, 'PK/cet4', 'pk');
+  else console.log('  ✗ PK 未能进入答题阶段，题目质量未被校验');
 
   // 词汇量自测
   const vt = await api('/api/vocabtest/questions');

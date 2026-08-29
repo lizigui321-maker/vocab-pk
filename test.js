@@ -95,9 +95,15 @@ async function main() {
   console.log('    =>', badStart.status, badStart.json.error || '(未拒绝!)');
   if (badStart.status === 200) throw new Error('非房主不应能开始游戏');
 
-  console.log('[5] 房主开始游戏...');
-  await req('POST', '/api/start', { roomId, playerId: hostId });
-  await sleep(300);
+  console.log('[5] 全员准备后房主开始游戏（含 3 秒倒计时）...');
+  await req('POST', '/api/ready', { roomId, playerId: hostId });
+  await req('POST', '/api/ready', { roomId, playerId: guestId });
+  const notReadyStart = await req('POST', '/api/start', { roomId, playerId: hostId });
+  if (notReadyStart.status !== 200) throw new Error('全员已准备却无法开始：' + (notReadyStart.json.error || ''));
+  await sleep(3400); // 等 3 秒倒计时走完
+  const cdState = await req('GET', '/api/state?roomId=' + roomId + '&playerId=' + hostId);
+  if (cdState.json.phase !== 'question') throw new Error('倒计时结束后未进入答题阶段：' + cdState.json.phase);
+  console.log('    => 倒计时结束，已进入答题阶段');
 
   let correct = 0, wrong = 0, timeouts = 0;
   const totals = { host: 0, guest: 0 };
@@ -143,9 +149,12 @@ async function main() {
   console.log(`    答题统计: 正确判定 ${correct} 次, 错误判定 ${wrong} 次, 超时 ${timeouts} 次`);
   if (correct + wrong + timeouts !== 20) throw new Error('答题记录数不对（应为 20 = 2人×10题）');
 
-  console.log('[7] 再来一局...');
-  await req('POST', '/api/replay', { roomId, playerId: hostId });
-  await sleep(400);
+  console.log('[7] 再来一局（同样需全员准备 + 3 秒倒计时）...');
+  await req('POST', '/api/ready', { roomId, playerId: hostId });
+  await req('POST', '/api/ready', { roomId, playerId: guestId });
+  const rep = await req('POST', '/api/replay', { roomId, playerId: hostId });
+  if (rep.status !== 200) throw new Error('再来一局失败：' + (rep.json.error || ''));
+  await sleep(3600); // 等 3 秒倒计时
   const again = states.host[states.host.length - 1];
   console.log('    新阶段:', again.phase, '第', again.qIndex + 1, '题');
   if (again.phase !== 'question') throw new Error('再来一局失败');

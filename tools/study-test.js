@@ -145,7 +145,9 @@ async function main() {
   // 然后开 PK 房，答错该词（制造 PK 错题）
   const created = await api('/api/create', { token: tok, bookId: 'cet4', mode: 'word', count: 10 });
   const rid = created.data.roomId, pid = created.data.playerId;
+  await api('/api/ready', { roomId: rid, playerId: pid }); // 新规则：全员准备后才能开始
   await api('/api/start', { roomId: rid, playerId: pid });
+  await sleep(3400); // 新规则：开始时先走 3 秒倒计时
   let state = (await api('/api/state?roomId=' + rid + '&playerId=' + pid)).data;
   // 找到单词 dq.word 的题目，故意答错
   // PK 题随机抽取，可能不含 dq.word；改用更直接的方法：故意让 dq.word 进错题

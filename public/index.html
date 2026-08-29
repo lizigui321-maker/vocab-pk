@@ -185,6 +185,10 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .prow .rdy.on{background:rgba(16,185,129,.14);color:var(--ok)}
 /* 房主无需准备，状态位直接显示身份 */
 .prow .rdy.hostb{background:rgba(245,158,11,.14);color:#b45309}
+/* 房间状态一行提示（人数 / 准备情况） */
+.rl-status{margin-top:10px;font-size:13px;color:var(--sub);display:flex;align-items:center;
+  justify-content:center;gap:6px;flex-wrap:wrap}
+.rl-status b{color:var(--ink)}
 /* 房间内设置区（房主可改词书/模式/题数） */
 .roomset{background:var(--well);border-radius:14px;padding:10px 13px;margin-top:12px;display:flex;flex-direction:column;gap:9px}
 .rsrow{display:flex;align-items:center;gap:10px;font-size:13.5px}
@@ -2663,6 +2667,9 @@ function renderLobby(v){
     ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
     : '<code>http://本机IP:' + INFO.port + '</code>';
   var modeName = v.settings.mode === 'listen' ? '🎧 听音辨义' : '📖 看词选义';
+  // 小功能配套：准备情况统计（房主不计入，因为房主无需准备）
+  var readyCount = v.players.filter(function(p){ return !p.isHost && p.ready; }).length;
+  var guestCount = v.players.filter(function(p){ return !p.isHost; }).length;
   var shareHtml = isPublicVisit()
     ? '把这个网址发给朋友（任何网络都能进，无需同一 WiFi）：<br><code>' + esc(location.origin) + '</code><br>' +
       '<button class="copybtn" id="copyLinkBtn">📋 复制网址 + 房间号</button>'
@@ -2671,6 +2678,12 @@ function renderLobby(v){
   '<div class="card" style="text-align:center">' +
     '<div class="qmeta">房间号 · 告诉你的朋友</div>' +
     '<div class="roomcode-big">' + esc(v.roomId) + '</div>' +
+    // 小功能：房间顶部一行状态提示（纯展示，不参与任何逻辑）
+    '<div class="rl-status">' +
+      '👥 <b>' + v.players.length + '</b> 人在房间 · ' +
+      '✅ <b>' + readyCount + '</b>/' + Math.max(0, guestCount) + ' 位玩家已准备' +
+      (v.allReady ? ' · <span style="color:var(--ok)">可以开始</span>' : '') +
+    '</div>' +
     '<div class="share">' + shareHtml + '</div>' +
   '</div>' +
   '<div class="card">' +

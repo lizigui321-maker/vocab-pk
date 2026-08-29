@@ -169,6 +169,17 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .prow .host{color:#d97706;font-size:13px}
 .prow .me{color:var(--brand);font-size:12px;background:rgba(79,70,229,.12);border-radius:6px;padding:1px 7px}
 .prow .pn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 点名字一键加好友：名字本身就是按钮，不用再去搜索 */
+.pname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  border:none;background:transparent;font:inherit;font-weight:600;color:var(--ink);
+  padding:3px 8px;margin:-3px 0;border-radius:9px;cursor:pointer;text-align:left;
+  transition:background .15s var(--ease),color .15s var(--ease)}
+.pname:hover{background:rgba(79,70,229,.1);color:var(--brand)}
+.pname:active{transform:scale(.97)}
+.pname.friended{color:var(--ok)}
+.pname.friended:hover{background:rgba(16,185,129,.12)}
+.pname:disabled{opacity:.55;cursor:default}
+.rname .pname{display:inline;white-space:normal}
 /* 准备状态徽章：全员准备后房主才能开始 */
 .prow .rdy{flex:none;font-size:11.5px;font-weight:700;border-radius:99px;padding:3px 10px;background:var(--well);color:var(--sub)}
 .prow .rdy.on{background:rgba(16,185,129,.14);color:var(--ok)}
@@ -568,6 +579,15 @@ var BOOKS = [];
 var INFO = { ips: [], port: 3000 };
 var token = localStorage.getItem('vpk_token') || '';   // 登录令牌
 var account = null;     // {username, name} 当前登录账号
+var myFriends = [];     // 好友账号名（小写）列表：房间内点名字一键加好友时用来判断是否已添加
+function loadFriends(){
+  if (!token) { myFriends = []; return; }
+  api('/api/friends', null, 'GET').then(function(d){
+    myFriends = (d && d.friends) ? d.friends.map(function(f){
+      return String((f && f.username) ? f.username : f).toLowerCase();
+    }) : [];
+  }).catch(function(){});
+}
 var session = null;      // {roomId, playerId}
 var es = null;           // EventSource
 var cur = null;          // 最近一次房间状态
@@ -884,6 +904,7 @@ function onAuthed(d){
   localStorage.setItem('vpk_token', token);
   page = 'home';
   startInviteWatcher();
+  loadFriends();
   renderHome();
 }
 function renderAuth(){
@@ -2620,15 +2641,19 @@ document.addEventListener('keydown', function(e){
 /* ---------- 大厅 ---------- */
 function renderLobby(v){
   var meHost = false, meReady = false;
+  var myName = (account && account.username) ? String(account.username).toLowerCase() : '';
   var playerRows = v.players.map(function(p){
     if (p.id === v.you) { meHost = p.isHost; meReady = !!p.ready; }
+    var isMe = p.id === v.you;
     return '<div class="prow">' +
       '<span class="dot ' + (p.connected ? 'on' : '') + '"></span>' +
-      '<span class="pn">' + esc(p.name) + (p.isHost ? ' <span class="host">👑 房主</span>' : '') +
-        (p.id === v.you ? ' <span class="me">我</span>' : '') + '</span>' +
+      friendNameHtml(p, isMe) +
+      (p.isHost ? ' <span class="host">👑 房主</span>' : '') +
+      (isMe ? ' <span class="me">我</span>' : '') +
       '<span class="rdy ' + (p.ready ? 'on' : '') + '">' + (p.ready ? '✅ 已准备' : '⏳ 未准备') + '</span>' +
       '</div>';
   }).join('');
+  setTimeout(bindFriendNames, 0);
   var ipHtml = INFO.ips && INFO.ips.length
     ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
     : '<code>http://本机IP:' + INFO.port + '</code>';
@@ -2662,8 +2687,8 @@ function renderLobby(v){
         '</button>' +
         '<div class="hint">所有玩家都点「我准备好了」后才能开始；开始时会有 3 秒倒计时。人数 ≥1 即可（单人也能练），最多 5 人。</div>'
       : '<div class="waiting">' + (meReady ? '已准备，等待其他人…' : '等待房主开始… 👀') + '</div>') +
-    '<button class="btn ghost" id="inviteBtn">🤝 邀请好友</button>' +
-    '<button class="btn ghost" id="addFriendBtn">➕ 加好友</button>' +
+    '<button class="btn ghost" id="inviteBtn">🤝 邀请好友进房间</button>' +
+    '<div class="hint" style="margin-top:10px">💡 点房间里其他玩家的名字，即可一键加为好友（不用搜索）。</div>' +
     '<button class="btn ghost" id="backBtn">返回首页</button>' +
   '</div>';
   var rb = $('#readyBtn');
@@ -2695,16 +2720,49 @@ function renderLobby(v){
       });
     }).catch(function(e){ toast(e.message); });
   };
-  var afb = $('#addFriendBtn');
-  if (afb) afb.onclick = function(){
-    var un = prompt('输入对方用户名，直接加为好友（之后可在好友列表一键邀请）：');
-    if (!un) return;
-    un = String(un).trim();
-    if (!un) return;
-    api('/api/friend', { token: token, username: un })
-      .then(function(){ toast('已添加好友 @' + un); })
-      .catch(function(e){ toast(e.message); });
-  };
+}
+/* ---------- 房间内「点名字一键加好友」----------
+   需求：在 PK 房里点对方名字就能加好友，不用再搜索/输入用户名。
+   已是好友时显示 🤝，再点一次可移除（避免误加后无法撤销）。 */
+function friendNameHtml(p, isMe){
+  var myName = (account && account.username) ? String(account.username).toLowerCase() : '';
+  var his = String(p.username || '').toLowerCase();
+  if (isMe || !his || his === myName) return '<span class="pn">' + esc(p.name) + '</span>';
+  var isFriend = myFriends.indexOf(his) >= 0;
+  return '<button class="pname' + (isFriend ? ' friended' : '') + '" data-un="' + esc(his) + '" ' +
+    'title="' + (isFriend ? '已是好友，点击移除' : '点击加为好友') + '">' +
+    esc(p.name) + (isFriend ? ' 🤝' : ' ➕') + '</button>';
+}
+function bindFriendNames(){
+  Array.prototype.forEach.call(document.querySelectorAll('.pname'), function(btn){
+    if (btn.__bound) return;
+    btn.__bound = true;
+    btn.onclick = function(){
+      var un = btn.getAttribute('data-un');
+      if (!un) return;
+      var already = myFriends.indexOf(un) >= 0;
+      btn.disabled = true;
+      var done = function(){ btn.disabled = false; };
+      if (already) {
+        // token 由 api() 自动放进 Authorization 头，不写进 URL（避免进入浏览器历史/服务器日志）
+        api('/api/friend?username=' + encodeURIComponent(un), null, 'DELETE')
+          .then(function(){
+            myFriends = myFriends.filter(function(x){ return x !== un; });
+            toast('已移除好友 @' + un);
+            if (cur) render();
+          })
+          .catch(function(e){ toast(e.message); done(); });
+      } else {
+        api('/api/friend', { token: token, username: un })
+          .then(function(){
+            myFriends.push(un);
+            toast('已添加好友 @' + un);
+            if (cur) render();
+          })
+          .catch(function(e){ toast(e.message); done(); });
+      }
+    };
+  });
 }
 /* 房主的房间设置区：词书 / 模式 / 题数（仅房主可见） */
 function roomSettingsHtml(v){
@@ -2919,10 +2977,11 @@ function renderResult(v){
       : '<b>' + p.score + ' 分</b>答对 ' + p.correctCount + ' / ' + v.total;
     return '<div class="' + meCls + '">' +
       '<div class="medal">' + medal + '</div>' +
-      '<div class="rname">' + esc(p.name) + (p.id === v.you ? '（我）' : '') + '</div>' +
+      '<div class="rname">' + friendNameHtml(p, p.id === v.you) + (p.id === v.you ? '（我）' : '') + '</div>' +
       '<div class="rstat">' + statHtml + '</div>' +
     '</div>';
   }).join('');
+  setTimeout(bindFriendNames, 0); // 结算页同样支持点名字加好友
   app.innerHTML =
   '<h1>🏆 对战结束</h1>' +
   '<div class="tagline">' + esc(v.bookName) + ' · ' + (v.settings.mode === 'listen' ? '听音辨义' : '看词选义') + ' · ' + v.total + ' 题</div>' +
@@ -3137,7 +3196,7 @@ function boot(){
           if (r.status === 401) { token = ''; try { localStorage.removeItem('vpk_token'); } catch(e){} _booted = true; clearSplash(); renderAuth(); return; }
           return r.json().catch(function(){ return {}; }).then(function(d){
             _booted = true; clearSplash();
-            if (d && d.username) { account = { username: d.username, name: d.name }; startInviteWatcher(); renderHome(); }
+            if (d && d.username) { account = { username: d.username, name: d.name }; startInviteWatcher(); loadFriends(); renderHome(); }
             else { token = ''; try { localStorage.removeItem('vpk_token'); } catch(e){} renderAuth(); }
           });
         })

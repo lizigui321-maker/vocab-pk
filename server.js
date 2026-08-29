@@ -1266,7 +1266,11 @@ function view(room, playerId) {
     qIndex: room.qIndex,
     total: room.questions.length,
     players: [...room.players.values()].map((p) => ({
-      id: p.id, name: p.name, score: p.score, correctCount: p.correctCount,
+      id: p.id, name: p.name,
+      // 账号名（小写）：房间内点名字即可一键加好友，无需搜索。
+      // 匿名/未登录加入的玩家没有账号名，前端会隐藏加好友入口。
+      username: p.username ? String(p.username).toLowerCase() : '',
+      score: p.score, correctCount: p.correctCount,
       isHost: p.isHost, isNew: p.isNew, connected: isOnline(p), answered: room.answered.has(p.id),
       ready: !!p.ready,
     })),

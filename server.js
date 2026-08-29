@@ -132,6 +132,8 @@ let leaseOwner = true;
 let kvUsable = KV_ON;
 let kvLastError = null;    // 最近一次云端错误（供 /api/storage-status 诊断）
 let kvLastWriteAt = 0;
+let kvRateLimitedAt = 0;   // 最近一次被 Upstash 限流(429)的时刻
+let kvRateWarned = false;  // 限流告警只打一次，避免刷屏
 const kvWriteQueue = [];   // 写入失败的重试队列（网络抖动不再静默丢数据）
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 /* 统一带超时的 fetch：Upstash 偶发慢响应/挂起时不能把启动流程卡死（原实现无超时 = 可能永久挂起） */
@@ -174,7 +176,20 @@ async function kvSetOnce(key, data) {
       headers: { Authorization: 'Bearer ' + UPSTASH_TOKEN, 'Content-Type': 'application/json' },
       body: JSON.stringify(JSON.stringify(data)),
     }, 8000);
-    if (!r.ok) { kvLastError = 'http_' + r.status; return false; }
+    if (!r.ok) {
+      kvLastError = 'http_' + r.status;
+      // 429 = Upstash 免费额度限流。此时绝不能立刻重试，否则会雪上加霜，
+      // 把真正重要的账号/进度写入也一起拖垮（表现为更新后账号失效）。
+      if (r.status === 429) {
+        kvRateLimitedAt = Date.now();
+        if (!kvRateWarned) {
+          kvRateWarned = true;
+          console.error('[KV] ⚠️ 触发 Upstash 限流(429)：已暂停重试以节省额度，账号写入转入队列稍后补写');
+        }
+      }
+      return false;
+    }
+    if (kvRateLimitedAt && Date.now() - kvRateLimitedAt > 60000) { kvRateLimitedAt = 0; kvRateWarned = false; }
     kvLastError = null; kvLastWriteAt = Date.now();
     return true;
   } catch (e) { kvLastError = String((e && e.message) || e); return false; }
@@ -182,9 +197,12 @@ async function kvSetOnce(key, data) {
 /* 写入带重试 + 失败入队（后台定时重放）：抖动/限流不再静默丢数据 */
 async function kvSet(key, data) {
   if (!kvUsable) return;
-  for (let i = 0; i < 3; i++) {
+  // 正在被限流时不再原地重试（重试只会加剧限流），直接入队，交给后台慢慢补写
+  const limited = kvRateLimitedAt && (Date.now() - kvRateLimitedAt < 60000);
+  const tries = limited ? 1 : 3;
+  for (let i = 0; i < tries; i++) {
     if (await kvSetOnce(key, data)) { kvLastWriteAt = Date.now(); return; }
-    await sleep(400 * Math.pow(2, i));
+    if (i < tries - 1) await sleep(400 * Math.pow(2, i));
   }
   console.error('[KV] 写入失败，已入队待重试:', key, kvLastError);
   for (let j = kvWriteQueue.length - 1; j >= 0; j--) if (kvWriteQueue[j].key === key) kvWriteQueue.splice(j, 1);
@@ -298,6 +316,38 @@ async function kvTakeLease() {
   if (!kvUsable) return;
   await kvSetOnce('__lease__', { id: INSTANCE_ID, at: Date.now() });
   leaseOwner = true;
+}
+/* 云端恢复看门狗：启动时若因网络抖动降级为本地模式，持续在后台探测；
+   一旦连通，把降级期间本地产生的数据【安全合并】回云端——
+   只补充云端没有的账号，云端已有的【一律保留云端版本】，绝不覆盖。
+   这样即便 KV 短暂抽风，用户数据也不会因为「降级期间注册的账号随清盘消失」而丢失。 */
+function startKvRecoveryWatchdog() {
+  if (!KV_ON || kvUsable) return;
+  let tries = 0;
+  const timer = setInterval(async () => {
+    if (kvUsable) { clearInterval(timer); return; }
+    tries += 1;
+    const probe = await kvGet('accounts', 1, 8000);
+    if (!probe.ok) {
+      if (tries % 10 === 0) console.log('[存储] 云端仍不可用（已重试 ' + tries + ' 次）：' + probe.error);
+      return;
+    }
+    clearInterval(timer);
+    const cloud = (probe.found && probe.value && typeof probe.value === 'object') ? probe.value : {};
+    let added = 0, kept = 0;
+    for (const [k, v] of Object.entries(accounts)) {
+      if (cloud[k]) { kept += 1; continue; } // 云端已有 → 保留云端版本，绝不覆盖
+      cloud[k] = v; added += 1;
+    }
+    // 云端有、本地没有（降级期间别人注册的）→ 以云端为准拉回来
+    let pulled = 0;
+    for (const [k, v] of Object.entries(cloud)) { if (!accounts[k]) { accounts[k] = v; pulled += 1; } }
+    kvUsable = true;
+    saveAccounts();
+    await kvTakeLease();
+    console.log('[存储] ✅ 云端已恢复（第 ' + tries + ' 次重试成功）：补充本地 ' + added +
+      ' 个账号 · 保留云端 ' + kept + ' 个 · 拉回云端新增 ' + pulled + ' 个');
+  }, 30000);
 }
 /* 退出前确认租约：只有「租约仍属于自己」才允许回写；已被新实例接管则绝不回写 */
 async function kvStillOwner() {
@@ -433,32 +483,18 @@ function dictShardKey(word, lang) {
 }
 const dictShardsLoaded = new Set();
 const dictShardTimers = {};
-/* 按需拉取分片（只在该分片首次被用到时消耗一次 KV 读） */
+/* 词典缓存【已改为只存本地磁盘，不再读写云端】——这是修复「每次更新后账号/密码失效」的关键一环。
+   原因：① Upstash 免费额度约 1 万 commands/天，词典分片读写会大量挤占额度；
+          一旦触发 429 限流，连 accounts（账号+进度）都写不进去，
+          表现就是「更新版本后账号没了 / 用户名密码不对」。
+        ② 内置词书已有离线索引（4 万条，零网络即时显示），
+          外部富化（音标/例句）属于丢了可重建的缓存，不值得占用用户数据的额度。
+   结论：宝贵的云端额度全部留给 accounts / sessions / groups / vocab-rank。 */
 async function loadDictShard(word, lang, ms) {
-  const sk = dictShardKey(word, lang);
-  if (dictShardsLoaded.has(sk)) return;
-  dictShardsLoaded.add(sk); // 先标记，避免并发重复拉取
-  if (!kvUsable) return;
-  // 只拉 1 次、可设短超时：查词路径上不能因云端慢而卡住（超时就当没缓存，走离线词书）
-  const r = await kvGet(sk, 1, ms || 6000);
-  if (r.ok && r.found && r.value && typeof r.value === 'object') {
-    for (const k of Object.keys(r.value)) if (!dictCache[k]) dictCache[k] = r.value[k];
-  }
+  return; // 云端词典缓存已停用；本地 store/dict.json 在启动时已载入内存
 }
-/* 富化结果写回云端分片（防抖合并，避免每个词一次网络写） */
 function saveDictShard(word, lang) {
-  const sk = dictShardKey(word, lang);
-  if (!kvUsable) return;
-  if (dictShardTimers[sk]) clearTimeout(dictShardTimers[sk]);
-  dictShardTimers[sk] = setTimeout(async () => {
-    delete dictShardTimers[sk];
-    const shard = {};
-    const prefix = (lang === 'es' ? 'es' : 'en') + ':';
-    for (const k of Object.keys(dictCache)) {
-      if (k.startsWith(prefix) && dictShardKey(k.slice(prefix.length), lang) === sk) shard[k] = dictCache[k];
-    }
-    await kvSet(sk, shard);
-  }, 4000);
+  saveDict(); // 仅落本地磁盘（会被平台清盘，但只是缓存，可重建）
 }
 /* 后台限速富化：对已有词书释义、但缺音标/例句的词，慢慢联网补齐并存库。
    严格限速，既保护外部 API，也避免打爆 Upstash 免费额度。 */
@@ -1613,7 +1649,25 @@ const server = http.createServer(async (req, res) => {
       const username = String(b.username || '').trim().toLowerCase();
       const password = String(b.password || '');
       const acc = accounts[username];
-      if (!acc || acc.hash !== hashPassword(password, acc.salt)) { noteLoginFailure(ip); return send(res, 401, { error: '用户名或密码错误' }); }
+      if (!acc) {
+        /* 明确区分「账号不存在」与「密码错误」。以前两者混为一句话，
+           导致「数据被清空」和「单纯记错密码」无法分辨，排查更新丢号问题时极其困难。 */
+        console.log('[登录失败] 账号不存在 user=' + username +
+          ' · 当前账号总数=' + Object.keys(accounts).length +
+          ' · 存储模式=' + (kvUsable ? 'cloud' : 'local') +
+          ' · 云端错误=' + (kvLastError || '无'));
+        noteLoginFailure(ip);
+        return send(res, 401, { error: '账号不存在（若刚更新过版本，可能是数据尚未同步，请稍候重试）' });
+      }
+      if (!acc.hash || !acc.salt) {
+        console.log('[登录失败] 账号数据损坏（缺 hash/salt） user=' + username + ' · 存储模式=' + (kvUsable ? 'cloud' : 'local'));
+        noteLoginFailure(ip);
+        return send(res, 401, { error: '账号数据异常，请联系管理员修复' });
+      }
+      if (acc.hash !== hashPassword(password, acc.salt)) {
+        noteLoginFailure(ip);
+        return send(res, 401, { error: '密码不正确' });
+      }
       const token = newSession(username);
       return send(res, 200, { token, username: acc.username, name: acc.name });
     }
@@ -2416,6 +2470,8 @@ loadStoreFromKV().then(async () => {
       console.log('!! 请立即检查环境变量：UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN');
       console.log('!! 云端是否已配置：' + (KV_ON ? '已配置' : '未配置') + ' · 最近错误：' + (kvLastError || '无'));
       console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n');
+      // 启动兜底：后台持续重试云端，连通后把本地期间产生的数据安全合并回去
+      startKvRecoveryWatchdog();
     }
   } else {
     // 云端模式：登记本实例为租约持有者，让即将退出的旧实例放弃回写（防覆盖新数据）
@@ -2429,7 +2485,18 @@ loadStoreFromKV().then(async () => {
   console.log('  背他喵的 · 背单词+单词对战 已启动');
   console.log('  离线词典:  ' + BOOK_INDEX_SIZE + ' 条词书词条已建索引（内置词零网络即时显示）');
   console.log('====================================');
-  if (!KV_ON) console.log('  存储模式:  本地文件（若部署平台清空磁盘数据会丢失，建议配置 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN）');
+  if (!KV_ON) {
+    // 打印【变量名】而不打印值，方便发现拼写/多了空格之类的配置错误（不泄露凭据）
+    const found = Object.keys(process.env).filter((k) => /UPSTASH|REDIS|KV_/i.test(k));
+    console.log('  存储模式:  ⚠️ 本地文件（部署平台会清空磁盘 → 每次更新账号都会丢！）');
+    console.log('  排查提示:  需配置 UPSTASH_REDIS_REST_URL 与 UPSTASH_REDIS_REST_TOKEN');
+    console.log('  已检测到:  ' + (found.length ? found.join(', ') : '（没有任何 UPSTASH/REDIS 相关环境变量，请到平台 Environment 里添加）'));
+  } else if (!kvUsable) {
+    console.log('  存储模式:  ⚠️ 云端已配置但连接失败，本次运行降级为本地文件（更新后账号可能丢失！）');
+    console.log('  云端错误:  ' + (kvLastError || '未知') + '（启动重试 ' + '3' + ' 次均未成功，后台仍在持续重试）');
+  } else {
+    console.log('  存储模式:  ✅ Upstash 云端持久化已生效（账号/进度跨更新保留）');
+  }
   if (onCloud) {
     if (externalUrl) console.log('  公网地址:  https://' + externalUrl);
     console.log('  监听端口:  ' + PORT);

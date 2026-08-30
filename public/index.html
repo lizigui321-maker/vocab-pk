@@ -361,6 +361,7 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .logo{display:flex;align-items:center;justify-content:center;gap:10px}
 .logo .ic{font-size:30px}
 .footer-tip{text-align:center;color:var(--faint);font-size:12px;margin-top:26px}
+.site-footer{text-align:center;color:var(--faint);font-size:11.5px;line-height:1.9;padding:22px 16px 26px;letter-spacing:.3px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:r 0.8s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes r{to{transform:rotate(360deg)}}
 .speak-flash{animation:pulse 1s ease infinite}
@@ -574,6 +575,7 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
     <div style="font-size:12.5px" id="boot-msg">正在载入…</div>
   </div>
 </div>
+<footer id="site-footer" class="site-footer">项目总监：胖虎老爹　·　程序员：AI　·　产品经理 &amp; 测试：Norman，程勇<span id="ver-tag"></span></footer>
 <style>@keyframes vpkspin{to{transform:rotate(360deg)}}</style>
 <div class="toast" id="toast"></div>
 <script>
@@ -1055,7 +1057,7 @@ function renderHome(){
           '<div class="feat" id="fGroups"><div class="ic">👥</div><div class="t">单词小组</div><div class="d">看看朋友的打卡</div></div>' +
           '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">我的好友</div><div class="d">邀请一起背单词</div></div>' +
         '</div>' +
-        '<div class="footer-tip" id="ftip">Rick + AI</div>';
+        '<div class="footer-tip" id="ftip" style="display:none"></div>';
       $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
       var hr = $('#hReview'); if (hr) hr.onclick = function(){ page = 'study'; stuStart('review'); };
       $('#fPk').onclick = function(){ renderPk(); };
@@ -1067,7 +1069,7 @@ function renderHome(){
       var sb = document.getElementById('setBtn'); if (sb) sb.onclick = function(){ page = 'settings'; renderSettings(); };
       wireTopbar();
       // 页脚显示部署版本号：让用户直观确认「更新是否生效」（单数据源 = /api/diag）
-      api('/api/diag', null, 'GET').then(function(d){ var ft = document.getElementById('ftip'); if (ft && d && d.version) ft.textContent = 'Rick + AI · v' + d.version; }).catch(function(){});
+      api('/api/diag', null, 'GET').then(function(d){ var vt = document.getElementById('ver-tag'); if (vt && d && d.version) vt.textContent = '　·　v' + d.version; }).catch(function(){});
     })
     .catch(function(e){ toast(e.message); renderAuth(); });
 }

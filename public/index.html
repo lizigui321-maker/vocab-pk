@@ -2090,6 +2090,21 @@ function pruneDetailCache(){
   for (var i = 0; i < keys.length - 800; i++) delete DETAIL_CACHE[keys[i]];
 }
 /* 直连 dictionaryapi.dev 的解析（与 server.js parseDictApi 保持一致的降级路径） */
+function isDupDefLocal(newDef, existing){
+  var a = (newDef || '').replace(/[\s，。、；：""''（）【】\(\)]/g, '');
+  if (a.length < 3) return false;
+  for (var i = 0; i < existing.length; i++) {
+    var b = (existing[i] || '').replace(/[\s，。、；：""''（）【】\(\)]/g, '');
+    if (b.length < 3) continue;
+    var sa = {}, sb = {}, inter = 0, ua = 0, ub = 0;
+    for (var c = 0; c < a.length; c++) { sa[a[c]] = 1; }
+    for (var d = 0; d < b.length; d++) { sb[b[d]] = 1; }
+    for (var k in sa) { ua++; if (sb[k]) inter++; }
+    for (var k in sb) { if (!sa[k]) ub++; }
+    if (inter / (ua + ub) > 0.65) return true;
+  }
+  return false;
+}
 function parseDictApiLocal(dd, word){
   if (!Array.isArray(dd) || !dd[0]) return null;
   var e = dd[0], out = { word: word, lang: 'en', ipa: '', ipaUk: '', ipaUs: '', audio: '', senses: [], forms: [], phrases: [], examples: [], exams: [], src: 'dictapi', at: Date.now() };
@@ -2099,12 +2114,16 @@ function parseDictApiLocal(dd, word){
     if (!out.ipa && ph.text) out.ipa = String(ph.text);
     if (!out.audio && ph.audio) out.audio = String(ph.audio);
   }
+  var existDefs = [];
   for (var j = 0; j < (e.meanings || []).length && out.senses.length < 4; j++) {
     var m = e.meanings[j], pos = String(m.partOfSpeech || '');
     for (var k = 0; k < (m.definitions || []).length && out.senses.length < 4; k++) {
       var def = m.definitions[k];
       if (!def || !def.definition) continue;
-      out.senses.push({ pos: pos, def: String(def.definition).slice(0, 160), en: String(def.example || '').slice(0, 180) });
+      var dtext = String(def.definition).slice(0, 160);
+      if (isDupDefLocal(dtext, existDefs)) continue;
+      existDefs.push(dtext);
+      out.senses.push({ pos: pos, def: dtext, en: String(def.example || '').slice(0, 180) });
     }
   }
   return out.senses.length ? out : null;

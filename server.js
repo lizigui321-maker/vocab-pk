@@ -676,6 +676,21 @@ function parseYoudaoMultle(d, word) {
   return out;
 }
 /* dictionaryapi.dev → 统一结构（海外兜底，提供标准 IPA 与真人音频） */
+/* 释义去重：新义项与已有义项字符重叠率过高则跳过（避免 item 展示 4 条"条/条款"） */
+function isDupDef(newDef, existing) {
+  const a = (newDef || '').replace(/[\s，。、；：""''（）【】\(\)]/g, '');
+  if (a.length < 3) return false;
+  for (let i = 0; i < existing.length; i++) {
+    const b = (existing[i] || '').replace(/[\s，。、；：""''（）【】\(\)]/g, '');
+    if (b.length < 3) continue;
+    /* Jaccard 字符重叠率 */
+    const sa = new Set(a), sb = new Set(b);
+    let inter = 0;
+    for (const c of sa) { if (sb.has(c)) inter++; }
+    if (inter / (sa.size + sb.size - inter) > 0.65) return true;
+  }
+  return false;
+}
 function parseDictApi(d, word) {
   const out = { senses: [], forms: [], phrases: [], examples: [], exams: [] };
   if (!Array.isArray(d) || !d[0]) return null;
@@ -691,7 +706,9 @@ function parseDictApi(d, word) {
     for (const def of (m.definitions || [])) {
       if (out.senses.length >= 4) break;
       if (!def || !def.definition) continue;
-      out.senses.push({ pos: pos, def: cleanText(def.definition).slice(0, 120), en: cleanText(def.example || '').slice(0, 160) });
+      const dtext = cleanText(def.definition).slice(0, 120);
+      if (isDupDef(dtext, out.senses.map(function(s){ return s.def; }))) continue;
+      out.senses.push({ pos: pos, def: dtext, en: cleanText(def.example || '').slice(0, 160) });
     }
   }
   if (!out.senses.length) return null;

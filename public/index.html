@@ -929,7 +929,6 @@ function connect(roomId, playerId){
   es.onmessage = function(e){
     try {
       sseAlive = true;
-      stopPolling(); // SSE 正常工作，停掉轮询兜底
       applyState(JSON.parse(e.data));
     } catch (err) {}
   };
@@ -938,11 +937,21 @@ function connect(roomId, playerId){
     if (!sseAlive && session && session.roomId === roomId) startPolling(roomId, playerId);
   }, 4000);
   es.onerror = function(){
-    if (es && es.readyState === 2) {
-      // 服务器断开：EventSource 会自动重连；期间由轮询兜底保证状态更新
-      if (session && session.roomId === roomId) startPolling(roomId, playerId);
-    }
+    // SSE 抖动/断开：EventSource 会自动重连，期间由轮询兜底保证状态不卡死
+    if (session && session.roomId === roomId) startPolling(roomId, playerId);
   };
+}
+/* 倒计时结束 / SSE 抖动兜底：主动拉一次最新状态，防止 reveal 没推到导致「卡在本题」
+   若拉回来仍是 question 阶段（服务器还没 reveal，差 ~400ms），继续短轮询直到阶段切换 */
+function ensureFreshState(){
+  if (page !== 'room' || !session) return;
+  fetch('/api/state?roomId=' + encodeURIComponent(session.roomId) + '&playerId=' + encodeURIComponent(session.playerId))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d && !d.error) applyState(d);
+      if (cur && cur.phase === 'question') setTimeout(ensureFreshState, 600);
+    })
+    .catch(function(){});
 }
 function leaveRoom(){
   if (es) { es.close(); es = null; }
@@ -3009,6 +3018,11 @@ function renderGame(v){
       if (fill) fill.style.width = pct + '%';
       if (tbar) tbar.classList.toggle('danger', pct < 25);
       if (tsec) tsec.textContent = (remain / 1000).toFixed(1) + ' 秒';
+      if (remain <= 0) {
+        if (fill) fill.style.width = '0%';
+        ensureFreshState(); // 倒计时结束兜底：主动拉最新状态，防 SSE 漏推 reveal 卡死
+        return;
+      }
       if (pct > 0 && cur && cur.phase === 'question') rafId = requestAnimationFrame(tick);
     }
     tick();

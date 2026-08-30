@@ -7,10 +7,11 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="背单词">
+<meta name="apple-mobile-web-app-title" content="胖虎战斗英语">
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<title>背他喵的 · 轻松积累你的词汇量</title>
+<title>胖虎战斗英语 · 轻松积累你的词汇量</title>
 <style>
 :root{
   --ink:#0f172a; --sub:#64748b; --faint:#94a3b8;
@@ -568,7 +569,7 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 <div id="app">
   <div id="boot-splash" style="min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;color:#64748b;text-align:center;padding:0 20px">
     <div style="font-size:38px;line-height:1">📚</div>
-    <div style="font-size:16px;font-weight:700;color:#334155;letter-spacing:.5px">背他喵的</div>
+    <div style="font-size:16px;font-weight:700;color:#334155;letter-spacing:.5px">胖虎战斗英语</div>
     <div style="width:22px;height:22px;border:3px solid rgba(79,70,229,.25);border-top-color:#4f46e5;border-radius:50%;animation:vpkspin .8s linear infinite"></div>
     <div style="font-size:12.5px" id="boot-msg">正在载入…</div>
   </div>
@@ -916,7 +917,7 @@ function onAuthed(d){
 function renderAuth(){
   page = 'auth';
   app.innerHTML =
-  '<h1><span class="logo"><span class="ic">🐱</span>背他喵的</span></h1>' +
+  '<h1><span class="logo"><img src="/panghu-avatar.jpg" alt="胖虎" style="width:44px;height:44px;border-radius:50%;object-fit:cover" />胖虎战斗英语</span></h1>' +
   '<div class="tagline">登录后开启你的背单词之旅 · 生词本、熟词本与进度绑定账号，永不错乱</div>' +
   '<div class="card">' +
     '<div class="tabs">' +
@@ -939,7 +940,7 @@ function renderAuth(){
       '<label class="fl">昵称（游戏中显示，可随时修改）</label>' +
       '<input type="text" id="nickInput" maxlength="12" placeholder="给自己起个名字">' +
     '</div>' +
-    '<button class="btn" id="authBtn">登录 🐱</button>' +
+    '<button class="btn" id="authBtn">登录</button>' +
   '</div>';
 
   var mode = 'login';
@@ -948,7 +949,7 @@ function renderAuth(){
     $('#tabLogin').classList.toggle('on', m === 'login');
     $('#tabReg').classList.toggle('on', m === 'reg');
     $('#nameWrap').style.display = m === 'reg' ? '' : 'none';
-    $('#authBtn').textContent = m === 'login' ? '登录 🐱' : '注册并登录 🐱';
+    $('#authBtn').textContent = m === 'login' ? '登录' : '注册并登录';
   }
   $('#tabLogin').onclick = function(){ switchTab('login'); };
   $('#tabReg').onclick = function(){ switchTab('reg'); };
@@ -1044,6 +1045,7 @@ function renderHome(){
           '<div class="hbtns"><button class="hbtn" id="hStudy">开始制定计划 ▸</button></div>';
       }
       app.innerHTML = topbar +
+        '<div style="text-align:center;padding:18px 0 6px"><img src="/panghu-avatar.jpg" alt="胖虎" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--brand);box-shadow:0 2px 12px rgba(79,70,229,.15)" /></div>' +
         '<div class="hero">' + hero + '</div>' +
         '<div class="feat-grid">' +
           '<div class="feat pk" id="fPk"><div class="ic">⚡</div><div class="t">单词对战</div><div class="d">和小伙伴实时比拼</div></div>' +
@@ -2728,7 +2730,7 @@ function renderLobby(v){
     if (sb.disabled) return;
     sb.disabled = true; sb.innerHTML = '<span class="spin"></span>准备中…';
     api('/api/start', { roomId: session.roomId, playerId: session.playerId })
-      .catch(function(e){ toast(e.message); sb.disabled = false; sb.innerHTML = '开始对战 🐱'; });
+      .catch(function(e){ toast(e.message); sb.disabled = false; sb.innerHTML = '开始对战 ⚡'; });
   };
   var clb = $('#copyLinkBtn');
   if (clb) clb.onclick = function(){

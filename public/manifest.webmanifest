@@ -1,16 +1,1 @@
-{
-  "name": "背他喵的 · 轻松背单词与单词对战",
-  "short_name": "背他喵的",
-  "description": "浏览器/App 直接背单词、做词汇量自测，也支持和朋友实时单词对战。账号保存独立生词本、熟词本与学习进度。",
-  "start_url": "/",
-  "scope": "/",
-  "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#eef2ff",
-  "theme_color": "#4f6ef7",
-  "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
-  ]
-}
+{"name": "胖虎战斗英语 · 轻松背单词与单词对战", "short_name": "胖虎战斗英语", "description": "浏览器/App 直接背单词、做词汇量自测，也支持和朋友实时单词对战。账号保存独立生词本、熟词本与学习进度。", "start_url": "/", "scope": "/", "display": "standalone", "orientation": "portrait", "background_color": "#eef2ff", "theme_color": "#4f6ef7", "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"}, {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}, {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}

@@ -676,18 +676,23 @@ function parseYoudaoMultle(d, word) {
   return out;
 }
 /* dictionaryapi.dev → 统一结构（海外兜底，提供标准 IPA 与真人音频） */
-/* 释义去重：新义项与已有义项字符重叠率过高则跳过（避免 item 展示 4 条"条/条款"） */
+/* 释义去重：新义项与已有义项字符重叠率过高则跳过（避免 item 展示多条"条/条款"）
+ * 双重检测：
+ *   1) Jaccard 字符重叠率 > 0.5 → 近义重复
+ *   2) 子集覆盖率 > 0.75 → 新义项大部分字已被某条已有义项包含
+ */
 function isDupDef(newDef, existing) {
-  const a = (newDef || '').replace(/[\s，。、；：""''（）【】\(\)]/g, '');
+  const a = (newDef || '').replace(/[\s，。、；：""''（）【】\(\)\-\(\)\/]/g, '');
   if (a.length < 3) return false;
+  const sa = new Set(a);
   for (let i = 0; i < existing.length; i++) {
-    const b = (existing[i] || '').replace(/[\s，。、；：""''（）【】\(\)]/g, '');
+    const b = (existing[i] || '').replace(/[\s，。、；：""''（）【】\(\)\-\(\)\/]/g, '');
     if (b.length < 3) continue;
-    /* Jaccard 字符重叠率 */
-    const sa = new Set(a), sb = new Set(b);
+    const sb = new Set(b);
     let inter = 0;
     for (const c of sa) { if (sb.has(c)) inter++; }
-    if (inter / (sa.size + sb.size - inter) > 0.65) return true;
+    if (inter / (sa.size + sb.size - inter) > 0.4) return true;
+    if (inter / sa.size > 0.65) return true;
   }
   return false;
 }

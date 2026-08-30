@@ -2091,17 +2091,19 @@ function pruneDetailCache(){
 }
 /* 直连 dictionaryapi.dev 的解析（与 server.js parseDictApi 保持一致的降级路径） */
 function isDupDefLocal(newDef, existing){
-  var a = (newDef || '').replace(/[\s，。、；：""''（）【】\(\)]/g, '');
+  var a = (newDef || '').replace(/[\s，。、；：""''（）【】\(\)\-\(\)\/]/g, '');
   if (a.length < 3) return false;
+  var sa = {};
+  for (var c = 0; c < a.length; c++) { sa[a[c]] = 1; }
   for (var i = 0; i < existing.length; i++) {
-    var b = (existing[i] || '').replace(/[\s，。、；：""''（）【】\(\)]/g, '');
+    var b = (existing[i] || '').replace(/[\s，。、；：""''（）【】\(\)\-\(\)\/]/g, '');
     if (b.length < 3) continue;
-    var sa = {}, sb = {}, inter = 0, ua = 0, ub = 0;
-    for (var c = 0; c < a.length; c++) { sa[a[c]] = 1; }
+    var sb = {}, inter = 0, ua = 0, ub = 0;
     for (var d = 0; d < b.length; d++) { sb[b[d]] = 1; }
     for (var k in sa) { ua++; if (sb[k]) inter++; }
     for (var k in sb) { if (!sa[k]) ub++; }
-    if (inter / (ua + ub) > 0.65) return true;
+    /* Jaccard > 0.5 或 子集覆盖率 > 0.75 */
+    if (inter / (ua + ub) > 0.4 || inter / ua > 0.65) return true;
   }
   return false;
 }

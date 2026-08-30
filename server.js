@@ -20,6 +20,7 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
+const APP_VERSION = '1.4.2';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组 */
 const POS_RE = /^(n|v|adj|adv|prep|conj|pron|num|int|art|aux|vt|vi|abbr)\.?\s*/i;
@@ -1649,6 +1650,7 @@ const server = http.createServer(async (req, res) => {
       const cloudVal = (cloud && cloud.found && cloud.value) ? cloud.value : null;
       return send(res, 200, {
         ok: true,
+        version: APP_VERSION,
         storeMode: kvUsable ? 'upstash' : 'local',
         kvConfigured: KV_ON,
         kvUsable: kvUsable,

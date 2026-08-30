@@ -1053,7 +1053,7 @@ function renderHome(){
           '<div class="feat" id="fGroups"><div class="ic">👥</div><div class="t">单词小组</div><div class="d">看看朋友的打卡</div></div>' +
           '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">我的好友</div><div class="d">邀请一起背单词</div></div>' +
         '</div>' +
-        '<div class="footer-tip">Rick + AI</div>';
+        '<div class="footer-tip" id="ftip">Rick + AI</div>';
       $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
       var hr = $('#hReview'); if (hr) hr.onclick = function(){ page = 'study'; stuStart('review'); };
       $('#fPk').onclick = function(){ renderPk(); };
@@ -1064,6 +1064,8 @@ function renderHome(){
       $('#fFriends').onclick = function(){ page = 'friends'; renderFriends(); };
       var sb = document.getElementById('setBtn'); if (sb) sb.onclick = function(){ page = 'settings'; renderSettings(); };
       wireTopbar();
+      // 页脚显示部署版本号：让用户直观确认「更新是否生效」（单数据源 = /api/diag）
+      api('/api/diag', null, 'GET').then(function(d){ var ft = document.getElementById('ftip'); if (ft && d && d.version) ft.textContent = 'Rick + AI · v' + d.version; }).catch(function(){});
     })
     .catch(function(e){ toast(e.message); renderAuth(); });
 }

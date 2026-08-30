@@ -1858,6 +1858,11 @@ function renderStuDash(){
   }).join('');
   var lvl = Math.floor(((ov.mastered || 0) + (ov.knownCount || 0)) / 50) + 1;
   stu.inputMode = stu.inputMode || 'choice';
+  /* 今日新词与到期复习都清空后，主按钮就该真的带用户去复习。
+     此前按钮文案会变成「（复习模式）」，但点击仍然跑 daily 模式，
+     结果只弹一句「今日任务已完成」什么也做不了 —— 点了等于没点，
+     真正的复习只能靠下面那个「智能复习」按钮。文案和行为必须一致。 */
+  var stuGoReview = !(t.newRemaining > 0 || ov.due > 0);
   app.innerHTML =
   '<div class="topbar" style="justify-content:space-between">' +
     '<span class="chip">📚 ' + esc(ov.bookName) + '</span>' +
@@ -1878,7 +1883,7 @@ function renderStuDash(){
       '<button data-v="choice" class="' + (stu.inputMode === 'choice' ? 'on' : '') + '">📝 选择题</button>' +
       '<button data-v="spell" class="' + (stu.inputMode === 'spell' ? 'on' : '') + '">⌨️ 拼写题（看义写词）</button>' +
     '</div>' +
-    '<button class="btn" id="stuGo">开始学习 ' + (t.newRemaining > 0 || ov.due > 0 ? '📖' : '（复习模式）🔁') + '</button>' +
+    '<button class="btn" id="stuGo">' + (stuGoReview ? '开始复习 🔁' : '开始学习 📖') + '</button>' +
     '<button class="btn ghost" id="stuReview">🎯 智能复习' +
       (ov.review
         ? '（待复习 ' + ov.review.due + (ov.review.weak ? ' · 易错 ' + ov.review.weak : '') + '）'
@@ -1921,7 +1926,7 @@ function renderStuDash(){
   '</div>';
   $('#stuBack').onclick = function(){ page = 'home'; renderHome(); };
   var ss = document.getElementById('stuSet'); if (ss) ss.onclick = function(){ page = 'settings'; renderSettings(); };
-  $('#stuGo').onclick = function(){ stuStart('daily'); };
+  $('#stuGo').onclick = function(){ stuStart(stuGoReview ? 'review' : 'daily'); };
   $('#stuReview').onclick = function(){ stuStart('review'); };
   var se = document.getElementById('stuExtra'); if (se) se.onclick = function(){ stuStart('daily', null, '临时加学', stu.extraStep); };
   bindExtraSeg('extraSeg', 'stuExtra');
@@ -2551,7 +2556,11 @@ function renderStuSummary(){
       '<button class="spk-btn sm ic" data-spk="' + esc(w.word) + '" data-spkl="' + esc(wl) + '" title="真人发音">🔊</button>' +
       '<span class="w" data-dw="' + esc(w.word) + '" data-dl="' + esc(wl) + '" title="点击查看详解">' + esc(w.word) + '</span>' +
       '<span class="m">' + esc(w.meaning) + '</span><span class="x">✗' + (w.my ? ' 选了「' + esc(w.my) + '」' : '') + '</span></div>';
-  }).join('') : '<div class="wb-empty">本轮全部答对，零错词 🎯</div>';
+  /* total===0 表示本轮一道题都没答（例如把词直接点了「我认识这个」移入熟词本），
+     此时说「本轮全部答对」是错的 —— 没答题谈不上答对。分开表述，别给用户虚假的正反馈。 */
+  }).join('') : (total
+    ? '<div class="wb-empty">本轮全部答对，零错词 🎯</div>'
+    : '<div class="wb-empty">本轮没有作答（单词被直接标记为已会）✅</div>');
   app.innerHTML =
   '<h1>📝 本轮完成</h1>' +
   '<div class="tagline">' + esc(s.label) + ' · 用时约 ' + mins + ' 分钟</div>' +

@@ -427,8 +427,24 @@ process.on('beforeExit', () => { if (kvUsable && Object.keys(kvTimers).length) k
  */
 const DICT_FILE = path.join(STORE, 'dict.json');
 const DICT_MAX = 3000;                 // 缓存上限，超出后按时间淘汰最早的一半
+/* 释义缓存结构版本号。改动释义的解析/去重规则时必须 +1：
+   否则磁盘里旧版缓存会被原样读回，新的去重规则根本不会生效，
+   用户看到的是「明明修了却还是一堆近义项」（这个坑踩过一次）。
+   启动时会自动丢弃版本不符的旧条目，让它们按新规则重新生成。 */
+const DICT_VER = 2;
 let dictCache = loadJSON(DICT_FILE, {});
 if (!dictCache || typeof dictCache !== 'object' || Array.isArray(dictCache)) dictCache = {};
+/* 淘汰旧版本缓存条目：只针对磁盘里读出来的富化结果（带 v 字段的才是本版本写的）。
+   离线词书索引不在这里，它每次启动都从 books.json 现建，天然是新的。 */
+(function dropStaleDictCache() {
+  let dropped = 0;
+  for (const k of Object.keys(dictCache)) {
+    const e = dictCache[k];
+    if (e && typeof e === 'object' && e.v === DICT_VER) continue;
+    delete dictCache[k]; dropped += 1;
+  }
+  if (dropped) console.log('[词典] 已淘汰 ' + dropped + ' 条旧版释义缓存（结构 v' + DICT_VER + '），将按新规则重新生成');
+})();
 let dictDirty = false;
 function dictKey(word, lang) { return (lang === 'es' ? 'es' : 'en') + ':' + String(word || '').trim().toLowerCase(); }
 function saveDict() {
@@ -470,13 +486,19 @@ function buildBookIndex() {
         if (!w) continue;
         const p = parseBookMeaning(it[1]);
         if (!p.def) continue;
+        /* 只要含中文的释义。词书里混着一些被拆坏的短语条目：
+           如 "go without"（没有…也行）被拆成 word=go / meaning=without，
+           于是查 go 会冒出一条纯英文的「without」，对中文用户毫无意义。
+           学习用的 BOOKS 有 isValidMeaning 过滤，词典索引此前漏了这道，这里补上。 */
+        if (!/[\u4e00-\u9fff]/.test(p.def)) continue;
         const key = lang + ':' + w.toLowerCase();
         const prev = bookIndex.get(key);
         if (!prev) {
           // 字段形状与联网富化结果保持一致，前端无需区分来源
           bookIndex.set(key, { word: w, lang: lang, ipa: '', audio: '', senses: [{ pos: p.pos, def: p.def }], forms: [], phrases: [], examples: [], exams: [], src: 'book' });
-        } else if (prev.senses.length < 4 && !prev.senses.some((s) => s.def === p.def)) {
-          prev.senses.push({ pos: p.pos, def: p.def }); // 同一词在不同词书里的补充义项
+        } else if (prev.senses.length < 4 && !isDupDef(p.def, prev.senses.map((s) => s.def))) {
+          // 同一词在不同词书里的补充义项；近义重复（「条，条款；一条」vs「条，条款」）在此拦掉
+          prev.senses.push({ pos: p.pos, def: p.def });
         }
         n++;
       }
@@ -582,7 +604,11 @@ function parseYoudao(d, word) {
   const pushSense = (pos, def) => {
     if (!def) return;
     if (out.senses.length >= 4) return;
-    out.senses.push({ pos: pos || '', def: shortenDef(def, out.senses.length === 0 ? 3 : 2).slice(0, 160) });
+    const d2 = shortenDef(def, out.senses.length === 0 ? 3 : 2).slice(0, 160);
+    if (!d2) return;
+    // 有道常把「条 / 条款 / 一条」这类近义义项拆成多条返回，逐条跳过
+    if (isDupDef(d2, out.senses.map((s) => s.def))) return;
+    out.senses.push({ pos: pos || '', def: d2 });
   };
   const ecs = ((d.ec || {}).word) || ((d.simple || {}).word) || [];
   const w0 = ecs[0];
@@ -643,8 +669,10 @@ function parseYoudaoSuggest(d, word) {
       const m = line.match(/^([a-zA-Z]+\.?)\s*(.*)$/);
       const rest = m && m[2] ? m[2].replace(/^\d+[.、]\s*/, '').trim() : line; // 剥掉 "1." "2、" 义项编号
       if (!rest) continue;
-      if (m && /[\u4e00-\u9fff]/.test(rest)) out.senses.push({ pos: m[1], def: rest.slice(0, 160) });
-      else out.senses.push({ pos: '', def: rest.slice(0, 160) });
+      const d2 = rest.slice(0, 160);
+      if (isDupDef(d2, out.senses.map((s) => s.def))) continue;
+      if (m && /[\u4e00-\u9fff]/.test(rest)) out.senses.push({ pos: m[1], def: d2 });
+      else out.senses.push({ pos: '', def: d2 });
     }
     break;
   }
@@ -670,29 +698,78 @@ function parseYoudaoMultle(d, word) {
     const def = nm ? nm[2].trim() : line;
     if (!def || !/[\u4e00-\u9fff]/.test(def)) continue; // 只要含中文的义项
     if (out.senses.length >= 4) break;
+    const d2 = shortenDef(def, out.senses.length === 0 ? 3 : 2).slice(0, 160);
+    if (!d2) continue;
+    if (isDupDef(d2, out.senses.map((s) => s.def))) continue;
     const posShow = pos === 'm' ? 'n.(阳)' : pos === 'f' ? 'n.(阴)' : pos;
-    out.senses.push({ pos: posShow, def: shortenDef(def, out.senses.length === 0 ? 3 : 2).slice(0, 160) });
+    out.senses.push({ pos: posShow, def: d2 });
   }
   return out;
 }
 /* dictionaryapi.dev → 统一结构（海外兜底，提供标准 IPA 与真人音频） */
-/* 释义去重：新义项与已有义项字符重叠率过高则跳过（避免 item 展示多条"条/条款"）
- * 双重检测：
- *   1) Jaccard 字符重叠率 > 0.5 → 近义重复
- *   2) 子集覆盖率 > 0.75 → 新义项大部分字已被某条已有义项包含
+/* 释义去重：新义项与已有义项高度相似则跳过。
+ * 背景（务必记住，否则会重蹈覆辙）：这个函数【曾经只被 parseDictApi 调用】，
+ * 而真正产出释义的两条主路径（离线词书索引 buildBookIndex、有道 parseYoudao）都没去重，
+ * 于是加了去重却"看起来没效果"——详情弹窗里照样刷出一堆「条 / 条款 / 一条」。
+ * 现在三条路径统一走这里。
+ * 判定（任一命中即重复）：
+ *   1) 归一化后完全相同
+ *   2) 一方是另一方的连续子串（双方都 ≥4 字时才启用，避免误伤短词）
+ *   3) 极短义项（1-2 字）被某条已有义项整段包含 → 冗余（如「做」⊂「使；做，制造」）
+ *   4) Jaccard 字符重叠率 > 0.4 → 近义重复（用字集合，抗词序与虚词差异）
+ *   5) 子集覆盖率 > 0.65 → 新义项大部分字已被某条已有义项覆盖
  */
+function normDef(s) {
+  return String(s == null ? '' : s)
+    .replace(/[\s，。、；：""''（）【】()\-—\/·《》]/g, '')
+    .toLowerCase();
+}
+/* 主义项：中文词典习惯把核心释义放在最前面（「去；走；变为」的核心就是「去」）。
+   两条释义若主义项相同，基本就是同一意思的不同措辞（如「去；走；变为」vs「去,离开,进行」），
+   这类用字不同、但语义重复的，纯字符相似度抓不到，必须靠主义项来识别。 */
+function primarySeg(s) {
+  return String(s == null ? '' : s).split(/[；;，,、\/]/)[0].trim();
+}
 function isDupDef(newDef, existing) {
-  const a = (newDef || '').replace(/[\s，。、；：""''（）【】\(\)\-\(\)\/]/g, '');
-  if (a.length < 3) return false;
-  const sa = new Set(a);
-  for (let i = 0; i < existing.length; i++) {
-    const b = (existing[i] || '').replace(/[\s，。、；：""''（）【】\(\)\-\(\)\/]/g, '');
-    if (b.length < 3) continue;
-    const sb = new Set(b);
+  const list = Array.isArray(existing) ? existing : [];
+  const a = normDef(newDef);
+  if (!a) return false;
+  // 3) 极短义项：完全相同，或被某条更完整的义项整段包含，都算冗余
+  if (a.length < 3) {
+    for (let i = 0; i < list.length; i++) {
+      const bx = normDef(list[i]);
+      if (bx === a) return true;                                  // 完全相同（两条都很短也算重复）
+      if (bx.length >= 3 && bx.indexOf(a) >= 0) return true;      // 被更完整的义项包含
+    }
+    return false;
+  }
+  for (let i = 0; i < list.length; i++) {
+    const b = normDef(list[i]);
+    if (!b) continue;
+    if (b.length < 3) {
+      // 已有的是极短义项，且被新义项整段包含 —— 同样判重复
+      if (a.indexOf(b) >= 0) return true;
+      continue;
+    }
+    if (a === b) return true;                                                    // 1)
+    if (a.length >= 4 && b.length >= 4 && (a.indexOf(b) >= 0 || b.indexOf(a) >= 0)) return true; // 2)
+    // 2b) 主义项相同或互相包含（≥2 字才启用，避免「去」这类单字误伤「去除/去年」等）
+    const na = normDef(primarySeg(newDef)), nb = normDef(primarySeg(list[i]));
+    if (na && nb) {
+      if (na === nb) return true;
+      if (na.length >= 2 && nb.indexOf(na) >= 0) return true;
+      if (nb.length >= 2 && na.indexOf(nb) >= 0) return true;
+      // 主义项落在对方【整条】释义里也算重复：
+      // 如已有「明亮的；轻的；不重要的」时，新来的「轻的，少量的」的主义项「轻的」已被覆盖
+      if (na.length >= 2 && b.indexOf(na) >= 0) return true;
+      if (nb.length >= 2 && a.indexOf(nb) >= 0) return true;
+    }
+    const sa = new Set(a), sb = new Set(b);
     let inter = 0;
     for (const c of sa) { if (sb.has(c)) inter++; }
-    if (inter / (sa.size + sb.size - inter) > 0.4) return true;
-    if (inter / sa.size > 0.65) return true;
+    const union = sa.size + sb.size - inter;
+    if (union > 0 && inter / union > 0.4) return true;                           // 4)
+    if (inter / sa.size > 0.65) return true;                                     // 5)
   }
   return false;
 }
@@ -738,6 +815,7 @@ function buildDetail(word, lang, parsed, src) {
     examples: parsed.examples || [],
     exams: parsed.exams || [],
     src: src, at: Date.now(),
+    v: DICT_VER,   // 结构版本：供启动时淘汰旧规则生成的缓存（详见 DICT_VER 注释）
   };
   return out;
 }
@@ -835,7 +913,7 @@ async function _fetchWordDetail(w, key, lang) {
     dictConcurrent -= 1; // 无论成败都要释放并发名额
   }
   // 查不到时记一个空结果，避免同一个生僻词被反复联网查询（30 分钟后才允许重试）
-  dictCache[key] = { word: w, lang: isEs ? 'es' : 'en', ipa: '', audio: '', senses: [], forms: [], phrases: [], examples: [], exams: [], src: 'none', neg: true, at: Date.now() };
+  dictCache[key] = { word: w, lang: isEs ? 'es' : 'en', ipa: '', audio: '', senses: [], forms: [], phrases: [], examples: [], exams: [], src: 'none', neg: true, at: Date.now(), v: DICT_VER };
   dictDirty = true; saveDict();
   return null;
 }

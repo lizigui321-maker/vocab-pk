@@ -585,6 +585,11 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 var $ = function(s){ return document.querySelector(s); };
 var app = $('#app');
 
+/* 选项拾取改用「事件委托 + pointerdown」：见 onAppPointerDown。
+   只挂一次，避免整页重渲染把 per-button 的 onclick 一起冲掉，
+   导致一次按下恰好落在重渲染之间时 click 事件丢失（表现为「点不动/卡住」）。 */
+app.addEventListener('pointerdown', onAppPointerDown);
+
 /* ---------- 全局状态 ---------- */
 var BOOKS = [];
 var INFO = { ips: [], port: 3000 };
@@ -688,6 +693,48 @@ function applyLocalJudge(v){
     myLocalCorrectIdx = lc;
     renderGame(v);
   }
+}
+
+/* 对战选项拾取（被 onAppPointerDown 委托调用）。
+   用「服务器已确认的选择 或 本地已选」判断是否已答，避免重复提交；
+   用 pointerdown 在按下瞬间即生效，规避 mousedown→mouseup 之间的重渲染吞掉 click。 */
+function handleBattlePick(iRaw){
+  if (page !== 'room' || !cur || !session || !cur.question) return;
+  var v = cur;
+  var serverChoice = (v.question.myChoice != null) ? v.question.myChoice : null;
+  var myChoice = serverChoice != null ? serverChoice : myLocalPick;
+  if (v.phase !== 'question' || myChoice != null) return; // 已答或非答题阶段，忽略
+  var i = +iRaw;
+  if (isNaN(i)) return;
+  myLocalPick = i;
+  lastPickQ = v.qIndex;
+  if (_bkReady) {
+    applyLocalJudge(v);
+  } else {
+    loadLocalBooks().then(function(){
+      if (session && lastPickQ === v.qIndex) applyLocalJudge(cur || v);
+    });
+  }
+  api('/api/answer', { roomId: session.roomId, playerId: session.playerId, qIndex: v.qIndex, choice: i })
+    .catch(function(err){ toast(err && err.message ? err.message : '提交失败'); });
+}
+
+/* #app 上的统一指针委托：选项 / 重听 / 发音按钮，只绑定一次 */
+function onAppPointerDown(e){
+  if (page !== 'room' || !cur || !session) return;
+  var t = e.target;
+  if (!t || !t.closest) return;
+  var opt = t.closest('.opt');
+  if (opt) {
+    if (opt.disabled) return;
+    e.preventDefault();
+    handleBattlePick(opt.getAttribute('data-i'));
+    return;
+  }
+  var rb = t.closest('#replayBtn');
+  if (rb) { e.preventDefault(); var q = (cur.question) || {}; speak(q.word, bookLangOf(cur.settings && cur.settings.bookId)); return; }
+  var pk = t.closest('#pkSpeak');
+  if (pk) { e.preventDefault(); var q2 = (cur.question) || {}; speak(q2.word, bookLangOf(cur.settings && cur.settings.bookId)); return; }
 }
 
 function toast(msg){
@@ -2938,31 +2985,10 @@ function renderGame(v){
     waitHtml + gainHtml +
   '</div>';
 
-  // 选项点击
-  app.querySelectorAll('.opt').forEach(function(btn){
-    btn.onclick = function(){
-      if (!session || answered) return;
-      answered = true;
-      myLocalPick = +btn.getAttribute('data-i');  // 立即本地高亮，不等服务器
-      lastPickQ = v.qIndex;
-      // 本地即时判题：词书已就绪立即亮对错，否则等词书加载完成（通常已预加载好）
-      if (_bkReady) {
-        applyLocalJudge(v);
-      } else {
-        loadLocalBooks().then(function(){
-          if (!session || lastPickQ !== v.qIndex) return;
-          applyLocalJudge(cur || v);
-        });
-      }
-      api('/api/answer', { roomId: session.roomId, playerId: session.playerId, qIndex: v.qIndex, choice: myLocalPick })
-        .catch(function(e){ toast(e.message); });
-    };
-  });
-  var rb = $('#replayBtn');
-  if (rb) rb.onclick = function(){ speak(q.word, bookLangOf(v.settings && v.settings.bookId)); };
-  var pks = $('#pkSpeak');
-  if (pks) pks.onclick = function(){ speak(q.word, pkLang); };
-  if (pks || rb) fillIpaCells(app); // 给 PK 题音标小标签异步填充（学习/对战共用缓存，命中即同步）
+  // 选项点击改用 #app 上的事件委托 + pointerdown（见 onAppPointerDown / handleBattlePick），
+  // 不再给每个按钮挂 onclick —— 那样每次整页重渲染都会把处理器冲掉，
+  // 一旦重渲染发生在「按下」与「松开」之间，click 事件丢失，表现为「点不动/卡住」。
+  fillIpaCells(app); // 给 PK 题音标小标签异步填充（学习/对战共用缓存，命中即同步）
 
   // 听力模式自动朗读（每题一次）
   if (v.phase === 'question' && isListen && lastSpokenQ !== v.qIndex) {

@@ -996,6 +996,34 @@ function dayKey(ts) {
 }
 function wordKey(w) { return String(w || '').trim().toLowerCase(); }
 
+/* 熟词本（已会/已掌握）单词集合：这些词在任何学习、复习、单元场景下都不应再出现。
+   之前只靠 st.progress.lv>=MASTER_LV 来判断，但存在两类失效：
+   ① markKnown 不会写入 st.progress.n（保持 0），于是 daily 新词队列把它当「从未学过的生词」再次放出；
+   ② 进度被整体重置（scope=progress）后该判断直接失效，熟词本里的词又冒出来。
+   所以以 acc.known 这一权威集合为唯一准绳做排除。 */
+function knownSetOf(acc) {
+  const s = new Set();
+  for (const x of (acc.known || [])) { const k = wordKey(x && x.word); if (k) s.add(k); }
+  return s;
+}
+/* 在“按预估词汇量过滤”的列表基础上，再剔除已移入熟词本的词 */
+function knownFilteredList(book, vocabEstimate, knownSet) {
+  const { list, skipped } = filterKnown(book, vocabEstimate);
+  if (!knownSet || knownSet.size === 0) return { list, skipped, knownSkipped: 0 };
+  const out = [];
+  let knownSkipped = 0;
+  for (const w of list) { if (knownSet.has(w.posKey)) knownSkipped += 1; else out.push(w); }
+  return { list: out, skipped, knownSkipped };
+}
+/* 取词的展示卡片（word+meaning），优先从指定词书取，再回退全局词表。
+   修复：自定义词书（不在全局 WORD_INFO 中）的到期/复习词此前只查 WORD_INFO，会被整体丢弃、永远不复习。 */
+function wordCard(k, preferBook) {
+  const info = wordInfoOf(k, preferBook);
+  const w = (preferBook && preferBook._words.find((x) => wordKey(x.word) === k)) || WORD_INFO.get(k);
+  if (!w && !info) return null;
+  return { word: (w && w.word) || k, meaning: (info && info.meaning) || (w && w.meaning) || k };
+}
+
 /* 按预估词汇量过滤：频率位次 ≤ 估计值的视为「已会」，跳过学习 */
 function filterKnown(book, vocabEstimate) {
   const est = Math.max(0, Number(vocabEstimate) || 0);
@@ -1028,7 +1056,7 @@ function studyOverview(acc) {
   const out = { plan: null, books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })).concat(custom) };
   if (!st.plan) return out;
   const book = resolveBook(acc, st.plan.bookId) || BOOKS[0];
-  const { list, skipped } = filterKnown(book, st.plan.vocabEstimate);
+  const { list, skipped, knownSkipped } = knownFilteredList(book, st.plan.vocabEstimate, knownSetOf(acc));
   const now = Date.now();
   const lg = todayLog(st);
   let learned = 0, mastered = 0, due = 0;
@@ -1058,7 +1086,7 @@ function studyOverview(acc) {
   }
   return {
     plan: st.plan, bookId: book.id, bookName: book.name,
-    total: list.length, rawTotal: book.words.length, skipped, unitSize: UNIT_SIZE,
+    total: list.length, rawTotal: book.words.length, skipped, knownSkipped, unitSize: UNIT_SIZE,
     learned, mastered, due, wrongCount: (acc.words || []).length, knownCount: (acc.known || []).length,
     review: reviewStats(acc),   // 智能复习统计：待复习/易错/已掌握
     today: { new: lg.new, review: lg.review, wrong: lg.wrong, dailyNew: st.plan.dailyNew, newRemaining: Math.max(0, st.plan.dailyNew - lg.new), newPoolRemaining: Math.max(0, list.length - learned) },
@@ -1393,6 +1421,9 @@ function recordWrong(player, q, bookName, lang, at) {
   const account = accounts[String(player.username).toLowerCase()];
   if (!account) return;
   const key = String(q.word).toLowerCase();
+  // 已移入熟词本（已掌握/已会）的词，即便 PK 答错也不应被拉回生词本，也不重置已掌握的进度。
+  // 否则熟词本会“偷偷失效”——用户在单词学习里点过的熟词，打一局 PK 答错就又冒出来。
+  if (account.known && account.known.some((x) => String(x.word).toLowerCase() === key)) return;
   const list = account.words = account.words || [];
   const idx = list.findIndex((x) => String(x.word).toLowerCase() === key);
   if (idx >= 0) list.splice(idx, 1);
@@ -1413,6 +1444,8 @@ function recordWrong(player, q, bookName, lang, at) {
 function buildReviewQueue(acc, st, limit) {
   const now = Date.now();
   const pr = st.progress || {};
+  const knownSet = knownSetOf(acc);
+  const planBook = resolveBook(acc, st.plan && st.plan.bookId);
   const cands = [];
   const seen = new Set();
   const scoreOf = (p) => {
@@ -1420,10 +1453,11 @@ function buildReviewQueue(acc, st, limit) {
     const overdueH = p.due ? Math.max(0, now - p.due) / 3600000 : 999;
     return overdueH + (p.wrong || 0) * 3 + (3 - Math.min(p.lv || 0, 3)) * 2;
   };
-  // ① 生词本（用户明确标记要背的），跳过已掌握
+  // ① 生词本（用户明确标记要背的），跳过已掌握 / 已移入熟词本
   for (const x of (acc.words || [])) {
     const k = wordKey(x.word);
     if (seen.has(k)) continue;
+    if (knownSet.has(k)) continue;                          // 已在熟词本，不应再复习
     const p = pr[k];
     if (p && (p.lv || 0) >= MASTER_LV) continue;            // 已掌握，不再进复习
     seen.add(k);
@@ -1433,11 +1467,12 @@ function buildReviewQueue(acc, st, limit) {
   for (const [k, p] of Object.entries(pr)) {
     if (!p || !p.n || (p.lv || 0) >= MASTER_LV) continue;
     if (seen.has(k)) continue;
+    if (knownSet.has(k)) continue;                          // 已在熟词本，不再复习
     if (p.due && p.due > now) continue;                     // 还没到复习时间
-    const info = WORD_INFO.get(k);
-    if (!info) continue;
+    const card = wordCard(k, planBook);
+    if (!card) continue;
     seen.add(k);
-    cands.push({ word: info.word, meaning: info.meaning, lang: info.lang || 'en', score: scoreOf(p), due: p.due || 0, lv: p.lv || 0, wrong: p.wrong || 0, src: 'srs' });
+    cands.push({ word: card.word, meaning: card.meaning, lang: (p.lang) || card.lang || 'en', score: scoreOf(p), due: p.due || 0, lv: p.lv || 0, wrong: p.wrong || 0, src: 'srs' });
   }
   cands.sort((a, b2) => b2.score - a.score);
   // 统计：到期数 = 已过复习时间的；薄弱词 = 错过 1 次以上的
@@ -2304,14 +2339,15 @@ const server = http.createServer(async (req, res) => {
         extra = rev.stats;
       } else if (mode === 'unit') {
         const unit = Math.max(0, Number(u.searchParams.get('unit')) || 0);
-        const { list } = filterKnown(book, st.plan.vocabEstimate);
+        const { list } = knownFilteredList(book, st.plan.vocabEstimate, knownSetOf(acc));
         const maxUnit = Math.max(0, Math.ceil(list.length / UNIT_SIZE) - 1);
         if (unit > maxUnit) return send(res, 400, { error: '单元不存在' });
         const seg = list.slice(unit * UNIT_SIZE, (unit + 1) * UNIT_SIZE);
         queue = seg.map((w) => ({ word: w.word, meaning: w.meaning }));
         extra = { unit, unitTotal: seg.length };
       } else {
-        const { list } = filterKnown(book, st.plan.vocabEstimate);
+        const knownSet = knownSetOf(acc);
+        const { list } = knownFilteredList(book, st.plan.vocabEstimate, knownSet);
         const lg = todayLog(st);
         const newRemaining = Math.max(0, st.plan.dailyNew - lg.new);
         // 临时加学：在今日计划新词之外，额外追加 extraNew 个未学新词（前端可反复点击叠加）
@@ -2321,8 +2357,9 @@ const server = http.createServer(async (req, res) => {
         const dueList = [];
         for (const [k, pr] of Object.entries(st.progress)) {
           if (!pr || !pr.n || pr.lv <= 0 || pr.lv >= MASTER_LV || !pr.due || pr.due > now) continue;
-          const info = WORD_INFO.get(k);
-          if (info) dueList.push({ word: info.word, meaning: info.meaning, due: pr.due });
+          if (knownSet.has(k)) continue; // 熟词本里的词，即便进度异常也绝不再复习
+          const card = wordCard(k, book);
+          if (card) dueList.push({ word: card.word, meaning: card.meaning, due: pr.due });
         }
         dueList.sort((a, c) => a.due - c.due);
         const reviews = dueList.slice(0, 100);
@@ -2383,7 +2420,7 @@ const server = http.createServer(async (req, res) => {
       const now2 = Date.now();
       const info = wordInfoOf(word, resolveBook(acc, st.plan && st.plan.bookId));
       const pr = st.progress[k] = st.progress[k] || { lv: 0, n: 0, c: 0, wrong: 0, due: 0, firstAt: now2, lastAt: now2 };
-      pr.lv = MASTER_LV; pr.due = now2 + 365 * 86400000; // 1 年内不再作为新词/复习出现
+      pr.lv = MASTER_LV; pr.n = Math.max(pr.n || 0, 1); pr.c = Math.max(pr.c || 0, 1); pr.due = now2 + 365 * 86400000; // 已掌握：进度置满，且 1 年内不再作为新词/复习出现
       if (Array.isArray(acc.words)) acc.words = acc.words.filter((x) => wordKey(x.word) !== k);
       const known = acc.known = acc.known || [];
       const km = { word, meaning: meaning || (info && info.meaning) || '', book: bookName || (info && info.bookName) || '', lang: lang || (info && info.lang) || 'en', at: now2 };

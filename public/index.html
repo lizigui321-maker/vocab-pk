@@ -942,16 +942,24 @@ function connect(roomId, playerId){
   };
 }
 /* 倒计时结束 / SSE 抖动兜底：主动拉一次最新状态，防止 reveal 没推到导致「卡在本题」
-   若拉回来仍是 question 阶段（服务器还没 reveal，差 ~400ms），继续短轮询直到阶段切换 */
+   若拉回来仍是 question 阶段（服务器还没 reveal，差 ~400ms），继续短轮询直到阶段切换。
+   用 freshActive 保证同时只有一条拉取链，避免重渲染重入叠加产生冗余请求。 */
+var freshActive = false;
 function ensureFreshState(){
+  if (freshActive) return;
   if (page !== 'room' || !session) return;
-  fetch('/api/state?roomId=' + encodeURIComponent(session.roomId) + '&playerId=' + encodeURIComponent(session.playerId))
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (d && !d.error) applyState(d);
-      if (cur && cur.phase === 'question') setTimeout(ensureFreshState, 600);
-    })
-    .catch(function(){});
+  freshActive = true;
+  (function step(){
+    if (page !== 'room' || !session) { freshActive = false; return; }
+    fetch('/api/state?roomId=' + encodeURIComponent(session.roomId) + '&playerId=' + encodeURIComponent(session.playerId))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d && !d.error) applyState(d);
+        if (cur && cur.phase === 'question') setTimeout(step, 600);
+        else freshActive = false;
+      })
+      .catch(function(){ freshActive = false; });
+  })();
 }
 function leaveRoom(){
   if (es) { es.close(); es = null; }

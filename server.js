@@ -1956,6 +1956,11 @@ const server = http.createServer(async (req, res) => {
       if (!account) return send(res, 401, { error: '请先登录' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '游戏进行中，请等本局结束后再加入' });
       if (room.players.size >= 5) return send(res, 400, { error: '房间已满（最多 5 人）' });
+      // 重连：同一账号若已在该房间（旧连线已断），先移除旧玩家，
+      // 避免记分板幽灵、room.players 无界增长，以及当前题作答随旧 pid 丢失
+      for (const [pid, p] of room.players) {
+        if (p.username && account.username && p.username.toLowerCase() === account.username.toLowerCase()) room.players.delete(pid);
+      }
       const player = addPlayer(room, account.name || account.username, false, account.username);
       broadcast(room);
       return send(res, 200, { roomId: room.id, playerId: player.id });

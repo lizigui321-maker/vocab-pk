@@ -1019,7 +1019,7 @@ function renderHome(){
   applyTheme();
   var topbar =
     '<div class="topbar" style="justify-content:space-between">' +
-      '<span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span>' +
+      '<span style="display:flex;align-items:center;gap:8px"><img src="/panghu-avatar.jpg" alt="胖虎" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)" /><span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span></span>' +
       '<span><button class="theme-toggle" id="thBtn">🌙</button> <button class="copybtn" id="setBtn">⚙️ 设置</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
     '</div>';
   app.innerHTML = topbar + '<div class="tagline"><span class="spin"></span></div>';
@@ -1047,7 +1047,6 @@ function renderHome(){
           '<div class="hbtns"><button class="hbtn" id="hStudy">开始制定计划 ▸</button></div>';
       }
       app.innerHTML = topbar +
-        '<div style="text-align:center;padding:18px 0 6px"><img src="/panghu-avatar.jpg" alt="胖虎" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--brand);box-shadow:0 2px 12px rgba(79,70,229,.15)" /></div>' +
         '<div class="hero">' + hero + '</div>' +
         '<div class="feat-grid">' +
           '<div class="feat pk" id="fPk"><div class="ic">⚡</div><div class="t">单词对战</div><div class="d">和小伙伴实时比拼</div></div>' +

@@ -1023,6 +1023,22 @@ function wordCard(k, preferBook) {
   if (!w && !info) return null;
   return { word: (w && w.word) || k, meaning: (info && info.meaning) || (w && w.meaning) || k };
 }
+/* 把单词从「熟词本」移回「生词本」时，必须同时撤销它的「已掌握」进度。
+   否则该词进度仍停留在 lv=MASTER_LV，会被三处同时排除：
+     ① 每日新词（要求 pr.n 为空 = 从未学过）
+     ② 每日到期复习（要求 lv < MASTER_LV）
+     ③ 智能复习队列（要求 lv < MASTER_LV）
+   结果就是：它明明显示在生词本里，用户却永远刷不到它 —— 等同于把它关进了小黑屋。
+   用户把它收回生词本 = 明确表达「这个我还不会」，理应立即降级为待巩固。 */
+function demoteKnownWord(acc, w) {
+  const k = wordKey(w);
+  const st = acc && acc.study;
+  if (!st || !st.progress || !st.progress[k]) return;
+  const pr = st.progress[k];
+  pr.lv = 0;
+  pr.due = Date.now();      // 立即可复习，不用再等一个周期
+  pr.lastAt = Date.now();
+}
 
 /* 按预估词汇量过滤：频率位次 ≤ 估计值的视为「已会」，跳过学习 */
 function filterKnown(book, vocabEstimate) {
@@ -1065,7 +1081,8 @@ function studyOverview(acc) {
     if (!p || !p.n) continue;
     if (inBook.has(k)) learned += 1;
     if (p.lv >= MASTER_LV) mastered += 1;
-    else if (p.lv > 0 && p.due && p.due <= now) due += 1;
+    // lv=0（答错待巩固）的词同样算「待复习」，与每日队列 / 智能复习队列口径保持一致
+    else if (p.due && p.due <= now) due += 1;
   }
   const units = [];
   for (let i = 0; i < list.length; i += UNIT_SIZE) {
@@ -1196,6 +1213,11 @@ function roomCode() {
   while (rooms.has(c));
   return c;
 }
+/* 房号规范化：去空格 + 转大写。
+   此前只有 /api/join 做了规范化，而 /api/start、/api/answer、/api/ready、/api/state、
+   /api/stream 等直接拿原始值查 rooms，导致用户手输小写房号时
+   「能进房间，但开始 / 答题 / 准备全部报 404 房间不存在」。统一走这里，杜绝此类不一致。 */
+function roomIdOf(v) { return String(v || '').trim().toUpperCase(); }
 function shuffle(a) {
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -1961,7 +1983,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const acc = authUser(tokenOf(req, u, b));
       if (!acc) return send(res, 401, { error: '请先登录' });
-      const room = rooms.get(String(b.roomId || '').trim().toUpperCase());
+      const room = rooms.get(roomIdOf(b.roomId));
       if (!room) return send(res, 404, { error: '房间不存在' });
       const player = room.players.get(String(b.playerId || ''));
       if (!player || (player.username || '').toLowerCase() !== acc.username.toLowerCase()) return send(res, 403, { error: '你不在该房间' });
@@ -2007,25 +2029,38 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/join') {
       const b = await readBody(req);
-      const room = rooms.get(String(b.roomId || '').trim().toUpperCase());
+      const room = rooms.get(roomIdOf(b.roomId));
       if (!room) return send(res, 404, { error: '房间不存在，请检查房号' });
       const account = authUser(tokenOf(req, u, b));
       if (!account) return send(res, 401, { error: '请先登录' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '游戏进行中，请等本局结束后再加入' });
       if (room.players.size >= 5) return send(res, 400, { error: '房间已满（最多 5 人）' });
-      // 重连：同一账号若已在该房间（旧连线已断），先移除旧玩家，
-      // 避免记分板幽灵、room.players 无界增长，以及当前题作答随旧 pid 丢失
-      for (const [pid, p] of room.players) {
-        if (p.username && account.username && p.username.toLowerCase() === account.username.toLowerCase()) room.players.delete(pid);
+      /* 重连处理：同一账号已在房间里时【直接复用原玩家】，而不是删掉重建。
+         此前是「删除旧玩家 + 按非房主新建」，带来两个严重后果：
+           ① 房主刷新页面 / 断线重连后，房主身份丢失 → 房间变成谁都开不了局的死房间；
+           ② 旧 playerId 立即失效，客户端此前拿到的 id 再去调 start/answer 全部 404。
+         复用则天然保住 playerId、房主身份、以及中途重连时的已有得分；
+         同时 players 集合不会因反复重连而膨胀。 */
+      let player = null;
+      for (const p of room.players.values()) {
+        if (p.username && account.username && p.username.toLowerCase() === account.username.toLowerCase()) { player = p; break; }
       }
-      const player = addPlayer(room, account.name || account.username, false, account.username);
+      if (player) {
+        player.lastSeen = Date.now();
+        player.name = account.name || account.username;
+        // 房间里已无房主（原房主掉线被清理）时由重连者接管，避免房间彻底报废
+        if (![...room.players.values()].some((x) => x.isHost)) player.isHost = true;
+      } else {
+        const roomHasHost = [...room.players.values()].some((p) => p.isHost);
+        player = addPlayer(room, account.name || account.username, !roomHasHost, account.username);
+      }
       broadcast(room);
       return send(res, 200, { roomId: room.id, playerId: player.id });
     }
     if (req.method === 'GET' && p === '/api/stream') {
       const roomId = u.searchParams.get('roomId');
       const playerId = u.searchParams.get('playerId');
-      const room = rooms.get(roomId);
+      const room = rooms.get(roomIdOf(roomId));
       const player = room && room.players.get(playerId);
       if (!player) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('gone'); }
       res.writeHead(200, {
@@ -2051,7 +2086,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/state') {
       const roomId = u.searchParams.get('roomId');
       const playerId = u.searchParams.get('playerId');
-      const room = rooms.get(roomId);
+      const room = rooms.get(roomIdOf(roomId));
       const player = room && room.players.get(playerId);
       if (!room || !player) return send(res, 404, { error: '房间不存在' });
       player.lastSeen = Date.now(); // 轮询也算在线（绿点 / 房间保活 / 提前公布答案）
@@ -2060,7 +2095,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/start') {
       const b = await readBody(req);
-      const room = rooms.get(b.roomId);
+      const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以开始游戏' });
@@ -2076,7 +2111,7 @@ const server = http.createServer(async (req, res) => {
     /* 玩家准备 / 取消准备（全员准备后房主才能开始） */
     if (req.method === 'POST' && p === '/api/ready') {
       const b = await readBody(req);
-      const room = rooms.get(b.roomId);
+      const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '游戏进行中，无需准备' });
@@ -2087,7 +2122,7 @@ const server = http.createServer(async (req, res) => {
     /* 房主在房间内直接改词书 / 模式 / 题数；改动后所有人回到未准备，需重新确认 */
     if (req.method === 'POST' && p === '/api/room/settings') {
       const b = await readBody(req);
-      const room = rooms.get(b.roomId);
+      const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以修改房间设置' });
@@ -2101,7 +2136,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/answer') {
       const b = await readBody(req);
-      const room = rooms.get(b.roomId);
+      const room = rooms.get(roomIdOf(b.roomId));
       if (!room) return send(res, 404, { error: '房间不存在' });
       // 校验房号与玩家号匹配，避免任何人拿到 roomId 就能替别人答题（B4）
       const pl0 = room.players.get(String(b.playerId || ''));
@@ -2113,7 +2148,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/replay') {
       const b = await readBody(req);
-      const room = rooms.get(b.roomId);
+      const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以再来一局' });
@@ -2158,6 +2193,15 @@ const server = http.createServer(async (req, res) => {
           at: now,
         });
         added += 1;
+        // 同一个词不能同时躺在「生词本」和「熟词本」里：熟词本在学习/复习过滤中优先级更高，
+        // 若不移出，这个词会处于自相矛盾的状态 —— 显示在生词本里，却永远不会被学到。
+        // 用户主动收回生词本 = 明确表示「这个我还不会」，理应退出熟词本。
+        if (acc.known && acc.known.length) {
+          const before = acc.known.length;
+          acc.known = acc.known.filter((x) => wordKey(x && x.word) !== wordKey(w));
+          // 确实是从熟词本移回来的 → 撤销「已掌握」进度，否则它仍会被三处过滤挡住、永远刷不到
+          if (acc.known.length !== before) demoteKnownWord(acc, w);
+        }
       }
       if (cur.length > 500) cur.length = 500;
       if (added) saveAccounts();
@@ -2354,10 +2398,19 @@ const server = http.createServer(async (req, res) => {
         const extraNew = Math.max(0, Math.min(200, Math.floor(Number(u.searchParams.get('extraNew')) || 0)));
         const unlearnedAll = list.filter((w) => { const pr = st.progress[w.posKey]; return !pr || !pr.n; });
         const news = unlearnedAll.slice(0, newRemaining + extraNew);
+        /* 每日学习只围绕【当前词书】：到期的复习词同样限定在当前词书内。
+           跨词书的到期词、生词本里的词统一交给「智能复习」(mode=review) 处理，
+           否则用户换了词书之后，旧词书的词还会一直混在每日任务里。 */
+        const inBook = new Set(list.map((w) => w.posKey));
         const dueList = [];
         for (const [k, pr] of Object.entries(st.progress)) {
-          if (!pr || !pr.n || pr.lv <= 0 || pr.lv >= MASTER_LV || !pr.due || pr.due > now) continue;
+          // 不能排除 lv===0：答错的词会被置为 lv=0、10 分钟后到期（WRONG_REDUE），
+          // 若在这里跳过，错题就永远不会出现在「每日学习」里 —— 答错的词凭空消失，
+          // 用户只能去「智能复习」才见得到（复习队列本身就允许 lv=0，两边逻辑此前不一致）。
+          // 错题恰恰是最该马上巩固的，必须让它回到每日队列。
+          if (!pr || !pr.n || pr.lv >= MASTER_LV || !pr.due || pr.due > now) continue;
           if (knownSet.has(k)) continue; // 熟词本里的词，即便进度异常也绝不再复习
+          if (!inBook.has(k)) continue;  // 不属于当前词书 → 交给智能复习，不占每日任务
           const card = wordCard(k, book);
           if (card) dueList.push({ word: card.word, meaning: card.meaning, due: pr.due });
         }
@@ -2451,6 +2504,8 @@ const server = http.createServer(async (req, res) => {
           const wl = acc.words = acc.words || [];
           if (!wl.some((x) => String(x.word).toLowerCase() === k)) wl.unshift({ word: item.word, meaning: item.meaning, book: item.book || '', lang: item.lang || 'en', at: Date.now() });
           if (wl.length > 500) wl.length = 500;
+          // 移回生词本 = 用户认为这个还不会：撤销「已掌握」进度，否则它进了生词本也永远刷不到
+          demoteKnownWord(acc, word);
         }
       } else {
         acc.known = [];

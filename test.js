@@ -3,16 +3,21 @@
 const http = require('http');
 
 const BASE = process.env.TEST_BASE || 'http://localhost:3199';
-let TOKEN = ''; // 登录后注入到后续请求的 token（修复：原测试从不鉴权，/api/create 必然 401）
+let TOKEN = '';       // 房主账号 token
+/* 第二名玩家必须用【独立账号】：服务端按 username 判定「同一账号在房间里只占一个玩家位」，
+   用同一个账号既建房又加入，只会复用同一个玩家（房主本人），根本构不成对战，
+   后续「非房主不能开始」「客人需准备」等断言也就无从验证。 */
+let GUEST_TOKEN = '';
 
-function req(method, path, body) {
+function req(method, path, body, token) {
   return new Promise((resolve, reject) => {
     let p = path, b = body;
+    const tk = token || TOKEN;
     // 自动携带登录 token（POST 放 body，GET 放 query）
-    if (TOKEN) {
-      if (b && typeof b === 'object') b = Object.assign({ token: TOKEN }, b);
-      else if (method === 'POST') b = { token: TOKEN };
-      else p += (p.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN);
+    if (tk) {
+      if (b && typeof b === 'object') b = Object.assign({ token: tk }, b);
+      else if (method === 'POST') b = { token: tk };
+      else p += (p.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(tk);
     }
     const data = b ? JSON.stringify(b) : null;
     const r = http.request(BASE + p, {
@@ -66,7 +71,19 @@ async function main() {
     TOKEN = lg.json.token;
   }
   if (!TOKEN) throw new Error('未获取到 token');
-  console.log('    已登录:', U);
+  console.log('    已登录(房主):', U);
+
+  // 第二名玩家：注册一个独立账号（对战必须由两个不同账号构成）
+  const U2 = 'bt' + Date.now().toString(36).slice(-8) + 'b';
+  const reg2 = await req('POST', '/api/register', { username: U2, password: PW, name: '小红' });
+  if (reg2.status === 200) GUEST_TOKEN = reg2.json.token;
+  else {
+    const lg2 = await req('POST', '/api/login', { username: U2, password: PW });
+    if (lg2.status !== 200) throw new Error('玩家2注册/登录失败: ' + JSON.stringify(lg2.json));
+    GUEST_TOKEN = lg2.json.token;
+  }
+  if (!GUEST_TOKEN) throw new Error('未获取到玩家2 token');
+  console.log('    已登录(玩家2):', U2);
 
   console.log('[1] 获取词库...');
   const books = await req('GET', '/api/books');
@@ -80,7 +97,7 @@ async function main() {
   console.log('    房间号:', roomId);
 
   console.log('[3] 玩家2加入...');
-  const joined = await req('POST', '/api/join', { roomId, name: '小红' });
+  const joined = await req('POST', '/api/join', { roomId, name: '小红' }, GUEST_TOKEN);
   if (joined.status !== 200) throw new Error('加入失败: ' + JSON.stringify(joined.json));
   const guestId = joined.json.playerId;
 
@@ -91,7 +108,7 @@ async function main() {
   await sleep(300);
 
   console.log('[4] 非房主尝试开始（应被拒绝）...');
-  const badStart = await req('POST', '/api/start', { roomId, playerId: guestId });
+  const badStart = await req('POST', '/api/start', { roomId, playerId: guestId }, GUEST_TOKEN);
   console.log('    =>', badStart.status, badStart.json.error || '(未拒绝!)');
   if (badStart.status === 200) throw new Error('非房主不应能开始游戏');
 
@@ -101,7 +118,7 @@ async function main() {
   if (earlyStart.status === 200) throw new Error('客人未准备却仍能开始，准备机制失效');
   console.log('    客人未准备时开始被拒 =>', earlyStart.status, earlyStart.json.error || '');
   // 只有客人需要准备
-  await req('POST', '/api/ready', { roomId, playerId: guestId });
+  await req('POST', '/api/ready', { roomId, playerId: guestId }, GUEST_TOKEN);
   const st5 = await req('GET', '/api/state?roomId=' + roomId + '&playerId=' + hostId);
   if (st5.json.allReady !== true) throw new Error('客人已准备但 allReady 不为 true');
   const hostReady = (st5.json.players || []).find((p) => p.isHost);
@@ -135,7 +152,7 @@ async function main() {
     await sleep(1200);
     const gs = states.guest[states.guest.length - 1];
     if (gs && gs.phase === 'question' && gs.question && gs.question.myChoice === null) {
-      await req('POST', '/api/answer', { roomId, playerId: guestId, qIndex: q.index, choice: (hostChoice + 1) % 4 });
+      await req('POST', '/api/answer', { roomId, playerId: guestId, qIndex: q.index, choice: (hostChoice + 1) % 4 }, GUEST_TOKEN);
     }
     // 等待 reveal
     await sleep(800);
@@ -159,7 +176,7 @@ async function main() {
   if (correct + wrong + timeouts !== 20) throw new Error('答题记录数不对（应为 20 = 2人×10题）');
 
   console.log('[7] 再来一局（同样只需客人准备，房主无需；含 3 秒倒计时）...');
-  await req('POST', '/api/ready', { roomId, playerId: guestId });
+  await req('POST', '/api/ready', { roomId, playerId: guestId }, GUEST_TOKEN);
   const rep = await req('POST', '/api/replay', { roomId, playerId: hostId });
   if (rep.status !== 200) throw new Error('再来一局失败：' + (rep.json.error || ''));
   await sleep(3600); // 等 3 秒倒计时

@@ -731,6 +731,7 @@ function handleBattlePick(iRaw){
   if (v.phase !== 'question' || myChoice != null) return; // 已答或非答题阶段，忽略
   var i = +iRaw;
   if (isNaN(i)) return;
+  playPick(); // 选选项的「叮」音效
   myLocalPick = i;
   lastPickQ = v.qIndex;
   if (_bkReady) {
@@ -907,6 +908,60 @@ function _playMp3(url, cb){
   var playTmr = setTimeout(function(){ if (a.currentTime > 0.05 || (a.readyState >= 2)) finish(true); }, 600);
   var hangTmr = setTimeout(function(){ finish(false); }, 4000);
 }
+
+/* ---------- 音效（Web Audio 实时合成，无需任何音频文件，离线可用） ----------
+ * 覆盖三类交互：① 学习选选项 ② 对战选选项 ③ 对战开局倒计时。
+ * 用振荡器 + 软包络合成，听感干净不刺耳；首次用户手势时解锁 AudioContext（浏览器策略要求）。 */
+var _sfxCtx = null;
+var _sfxMuted = (function(){ try { return localStorage.getItem('vpk_sfx') === 'off'; } catch (e) { return false; } })();
+function sfxOn(){ return !_sfxMuted; }
+function sfxSetMuted(m){ _sfxMuted = !!m; try { localStorage.setItem('vpk_sfx', _sfxMuted ? 'off' : 'on'); } catch (e) {} }
+function _sfxCtxGet(){
+  if (_sfxCtx) {
+    if (_sfxCtx.state === 'suspended') { try { _sfxCtx.resume(); } catch (e) {} }
+    return _sfxCtx;
+  }
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    _sfxCtx = new AC();
+  } catch (e) { return null; }
+  return _sfxCtx;
+}
+/* 播放一个带「快起快落」包络的音，避免 click 爆音 */
+function _sfxTone(freq, dur, type, vol, delay){
+  if (_sfxMuted) return;
+  var ctx = _sfxCtxGet();
+  if (!ctx) return;
+  var t0 = ctx.currentTime + (delay || 0);
+  var osc = ctx.createOscillator();
+  var g = ctx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol || 0.18, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g); g.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
+}
+/* 选项拾取：轻快「叮」一声（两段微微上扬，听感活泼） */
+function playPick(){ _sfxTone(560, 0.09, 'triangle', 0.16); _sfxTone(840, 0.09, 'triangle', 0.12, 0.045); }
+/* 倒计时每秒一记轻「嗒」（数字越小音越高，临门一脚感） */
+function playTick(n){
+  var f = (n === 3) ? 660 : (n === 2) ? 770 : 880;
+  _sfxTone(f, 0.07, 'sine', 0.16);
+}
+/* 倒计时结束「GO!」：上行两音，亮起来 */
+function playGo(){ _sfxTone(660, 0.12, 'triangle', 0.18); _sfxTone(990, 0.18, 'triangle', 0.18, 0.10); }
+/* 首次用户手势时解锁音频（浏览器要求 AudioContext 必须在手势中创建/恢复） */
+(function(){
+  function unlock(){ _sfxCtxGet(); }
+  if (document.addEventListener) {
+    document.addEventListener('pointerdown', unlock, { once: true });
+    document.addEventListener('keydown', unlock, { once: true });
+  }
+})();
 /* 浏览器 TTS：优先自然音色；goodOnly=true 时没有自然音色直接放弃（转 MP3） */
 function _speakTTS(word, lang, goodOnly, cb){
   if (!('speechSynthesis' in window)) { if (cb) cb(false); return; }
@@ -1271,6 +1326,11 @@ function renderSettings(){
         '<div class="switch' + (dk ? ' on' : '') + '" id="setDark"><span>🌙 深色模式</span><span class="sw"></span></div>' +
       '</div>' +
       '<div class="card">' +
+        '<div class="wb-head"><span class="wb-count">🔊 音效</span></div>' +
+        '<div class="switch' + (sfxOn() ? ' on' : '') + '" id="setSfx"><span>🔊 选词 / 倒计时音效</span><span class="sw"></span></div>' +
+        '<div class="hint">学习和对战选择选项、开局倒计时时的轻提示音；关闭则完全静音。</div>' +
+      '</div>' +
+      '<div class="card">' +
         '<div class="wb-head"><span class="wb-count">🔊 发音</span></div>' +
         '<div class="switch' + (_ttsMode() !== 'system' ? ' on' : '') + '" id="setTts"><span>真人发音优先（有道真人录音 · 神经语音）</span><span class="sw"></span></div>' +
         '<div class="hint">开启：小喇叭播真人/自然发音，没有网络时自动用系统语音；<br>关闭：优先使用设备自带语音（离线可用，但音色取决于设备）。</div>' +
@@ -1337,6 +1397,12 @@ function renderSettings(){
         setTtsMode(m);
         this.classList.toggle('on', m === 'human');
         toast(m === 'human' ? '已切换为真人发音优先' : '已切换为系统语音优先');
+      };
+      var sfxSw = $('#setSfx');
+      if (sfxSw) sfxSw.onclick = function(){
+        sfxSetMuted(!_sfxMuted);
+        this.classList.toggle('on', sfxOn());
+        if (sfxOn()) playPick(); // 打开时试听一下
       };
       $('#setNickSave').onclick = function(){
         var nn = $('#setNick').value.trim().slice(0, 12);
@@ -2617,6 +2683,7 @@ function stuPick(choice){
   var q = s.queue[s.idx];
   if (!q) return;
   var qlang = q.lang || s.lang;
+  playPick(); // 选选项的「叮」音效
   s.lock = true;
   var correct = choice === q.correctIndex;
   var letters = ['A', 'B', 'C', 'D'];
@@ -3333,6 +3400,7 @@ function render(){
 /* 开局 3 秒倒计时：结束时刻由服务端统一下发（clockOffset 已校正客户端时钟），
    保证所有人看到的数字一致，不会出现有人抢跑、有人还在等的情况。 */
 var cdTimer = null;
+var _cdPlayed = ''; // 防止倒计时被重复渲染时同一秒的音效重播
 function renderCountdown(v){
   var endsAt = (v.countdownEndsAt || 0) - (clockOffset || 0);
   if (!endsAt) endsAt = Date.now() + 3000;
@@ -3357,6 +3425,9 @@ function renderCountdown(v){
         el.style.animation = 'none';
         void el.offsetWidth;
         el.style.animation = '';
+        // 倒计时音效：每秒一记轻「嗒」，归零时一声明亮的「GO!」（同一倒计时同一秒只响一次）
+        var key = 'cd' + endsAt + ':' + n;
+        if (key !== _cdPlayed) { _cdPlayed = key; if (n > 0) playTick(n); else playGo(); }
       }
     }
     if (left <= 0 && cdTimer) { clearInterval(cdTimer); cdTimer = null; }

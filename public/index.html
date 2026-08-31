@@ -2136,14 +2136,14 @@ function parseDictApiLocal(dd, word){
   return out.senses.length ? out : null;
 }
 var _detailInflight = {}; // word:lang -> Promise，去重进行中的请求（PK 对战每帧重渲染会重复触发）
-function fetchDetail(word, lang, cb){
+function fetchDetail(word, lang, cb, force){
   var key = detailKey(word, lang);
-  if (Object.prototype.hasOwnProperty.call(DETAIL_CACHE, key)) {
+  if (!force && Object.prototype.hasOwnProperty.call(DETAIL_CACHE, key)) {
     var hit = DETAIL_CACHE[key];
     if (hit) { hit.at = Date.now(); return cb(hit); }
     return cb(null);
   }
-  if (_detailInflight[key]) {
+  if (!force && _detailInflight[key]) {
     // 已有进行中的请求：等它完成后统一从缓存取结果，避免重复打网络/重复回调
     _detailInflight[key].then(function(){
       var v = DETAIL_CACHE[key];
@@ -2267,7 +2267,7 @@ function openWordDetail(word, lang, opts){
   var cp = ov.querySelector('#wdCopy');
   if (cp) cp.onclick = function(){ copyText(opts.meaning, '释义已复制'); };
   var ipaEl = ov.querySelector('#wdIpa');
-  fetchDetail(word, lang, function(d){
+  function renderDetail(d) {
     if (!document.body.contains(ov)) return;
     if (ipaEl) {
       var ipaTxt = (d && (d.ipa || d.ipaUs)) ? '/' + (d.ipa || d.ipaUs) + '/' : '';
@@ -2321,7 +2321,12 @@ function openWordDetail(word, lang, opts){
       html += '<div class="wd-sec"><h4>词形变化</h4><div class="wd-form">' + d.forms.map(function(f){ return '<span>' + wdEscape(f.name) + ' <b>' + wdEscape(f.value) + '</b></span>'; }).join('') + '</div></div>';
     }
     body.innerHTML = html || '<div class="wd-loading">暂无更多释义</div>';
-  });
+  }
+  fetchDetail(word, lang, renderDetail);
+  /* 首次打开先即时展示词书义；后台富化（有道/词典API）完成后，自动补刷一次，
+     把「默认/缺省」这类词书里没有的日常义补进弹窗，无需用户手动重开。 */
+  setTimeout(function () { if (document.body.contains(ov)) fetchDetail(word, lang, renderDetail, true); }, 2500);
+  setTimeout(function () { if (document.body.contains(ov)) fetchDetail(word, lang, renderDetail, true); }, 5200);
   return ov;
 }
 /* 学习中新词首次出现的自动详解：每个词只自动弹一次（按当前账号 localStorage 记录） */

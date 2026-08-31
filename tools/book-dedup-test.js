@@ -100,10 +100,21 @@ async function main() {
   console.log('\n断言：');
   ok('组合词性前缀已从 def 中剥离（无 "vi&n"/"vt&vi" 残留）', badPrefix === 0, '残留 ' + badPrefix + ' 条');
   ok('保留义项之间无近义重复 (Jaccard>0.4)', dupPairs === 0, '发现 ' + dupPairs + ' 对');
-  const defR = await req('GET', '/api/word?w=default&lang=en', null, token);
+  // default：先即时返回词书义（违约/拖欠），后台富化后合并「默认/缺省」在线义。
+  // 轮询等待补全（最多 ~18s），再断言合并后的语义正确。
+  let defR = await req('GET', '/api/word?w=default&lang=en', null, token);
+  for (let i = 0; i < 36; i++) {
+    const ds = (defR.json && defR.json.senses) || [];
+    if (ds.some((s) => /默认|缺省/.test(s.def))) break;
+    await sleep(500);
+    defR = await req('GET', '/api/word?w=default&lang=en', null, token);
+  }
   const defSenses = (defR.json && defR.json.senses) || [];
-  const defCount = defSenses.length;
-  ok('default 不再出现两条近义（cet6 与 ielts 合并为一条）', defCount <= 1, '实际 ' + defCount + ' 条: ' + JSON.stringify(defSenses.map((s) => s.def)));
+  const hasEveryday = defSenses.some((s) => /默认|缺省/.test(s.def));
+  const debtSenses = defSenses.filter((s) => /违约|拖欠/.test(s.def));
+  ok('default 补全了「默认/缺省」这类日常义（此前缺失）', hasEveryday, '实际: ' + JSON.stringify(defSenses.map((s) => s.def)));
+  ok('default 的「违约/拖欠」近义已被折叠为一条（cet6 与 ielts 不重复）', debtSenses.length <= 1, '实际 ' + debtSenses.length + ' 条: ' + JSON.stringify(debtSenses.map((s) => s.def)));
+  ok('default 合并后义项数量合理（≤4）', defSenses.length <= 4, '实际 ' + defSenses.length + ' 条');
 
   srv.kill();
   console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');

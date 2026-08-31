@@ -20,7 +20,7 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
-const APP_VERSION = '1.4.3';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.4';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -828,6 +828,56 @@ function buildDetail(word, lang, parsed, src) {
   };
   return out;
 }
+/* 词书释义与在线词典释义合并。规则：
+ *  - 词书义优先入列，自身近义先去重（buildBookIndex 已折叠 cet6/ielts 对同一词的近义，这里再保险一次）；
+ *  - 在线义按「；」拆段，只保留词书里没有的新义项段，冗余段（如 default 的「违约/拖欠」）丢弃；
+ *    否则整条在线义因含「违约/拖欠」被 isDupDef 判为与词书近义、连带把「默认/缺省」一起丢掉；
+ *  - 音标/音频/例句/搭配/词形优先用在线（更全），词书缺则补。 */
+function mergeBookOnline(book, online) {
+  const senses = [];
+  const isDup = (def) => senses.some((s) => isDupDef(def, [s.def]));
+  for (const s of (book.senses || [])) {
+    if (s && s.def && !isDup(s.def)) senses.push({ pos: s.pos || '', def: s.def });
+  }
+  const bookDefs = (book.senses || []).map((s) => s.def);
+  for (const s of (online.senses || [])) {
+    if (!s || !s.def) continue;
+    const segs = String(s.def).split(/[；;]/).map((x) => x.trim()).filter(Boolean);
+    const novel = segs.filter((seg) => !isDupDef(seg, bookDefs) && !isDup(seg));
+    if (!novel.length) continue;
+    if (senses.length >= 8) break;
+    senses.push({ pos: s.pos || '', def: novel.join('；') });
+  }
+  const pick = (a, b) => (a || b);
+  return {
+    word: book.word || online.word,
+    lang: book.lang || online.lang || 'en',
+    ipa: pick(online.ipa, book.ipa),
+    ipaUk: pick(online.ipaUk, book.ipaUk),
+    ipaUs: pick(online.ipaUs, book.ipaUs),
+    audio: pick(online.audio, book.audio),
+    audioUk: pick(online.audioUk, book.audioUk),
+    audioUs: pick(online.audioUs, book.audioUs),
+    senses: senses,
+    forms: (online.forms && online.forms.length) ? online.forms : (book.forms || []),
+    phrases: (online.phrases && online.phrases.length) ? online.phrases : (book.phrases || []),
+    examples: (online.examples && online.examples.length) ? online.examples : (book.examples || []),
+    exams: (online.exams && online.exams.length) ? online.exams : (book.exams || []),
+    src: (online.src ? (online.src + '+book') : (book.src || 'book')),
+    at: Date.now(),
+    v: DICT_VER,
+  };
+}
+/* 把在线富化结果写入 dictCache；若该词属于某本词书，则先与词书释义合并（见 mergeBookOnline）。 */
+function cacheWordDetail(key, out) {
+  const bk = bookIndex.get(key);
+  const finalOut = (bk && (bk.senses || []).length) ? mergeBookOnline(bk, out) : out;
+  dictCache[key] = finalOut;
+  dictDirty = true;
+  saveDict();
+  return finalOut;
+}
+
 /* 查询单词详情：本地缓存 → 有道 → dictionaryapi.dev（英文）→ 有道 suggest（西语）
    并发防护：同一词去重（正在查的直接复用），全局最多同时 4 个外部请求，防刷限流。 */
 const dictInFlight = new Map(); // key -> [promise]
@@ -884,15 +934,13 @@ async function _fetchWordDetail(w, key, lang) {
       const multleOk = p.senses.length >= 2 || p.senses.some((s) => s.pos);
       if (multleOk) {
         const out = buildDetail(w, 'es', p, 'youdao');
-        dictCache[key] = out; dictDirty = true; saveDict();
-        return out;
+        return cacheWordDetail(key, out);
       }
       const ds = await fetchJSON('https://dict.youdao.com/suggest?num=5&ver=3.0&doctype=json&le=es&q=' + q, 5000);
       const ps = parseYoudaoSuggest(ds, w);
       if (ps.senses.length) {
         const out = buildDetail(w, 'es', ps, 'youdao-suggest');
-        dictCache[key] = out; dictDirty = true; saveDict();
-        return out;
+        return cacheWordDetail(key, out);
       }
     } else {
       const d = await fetchJSON('https://dict.youdao.com/jsonapi?q=' + q + '&doctype=json', 6000);
@@ -907,15 +955,13 @@ async function _fetchWordDetail(w, key, lang) {
           } catch (e) { /* 忽略：音标是加分项，不是必需 */ }
         }
         const out = buildDetail(w, 'en', p, 'youdao');
-        dictCache[key] = out; dictDirty = true; saveDict();
-        return out;
+        return cacheWordDetail(key, out);
       }
       const d3 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
       const p3 = parseDictApi(d3, w);
       if (p3) {
         const out = buildDetail(w, 'en', p3, 'dictapi');
-        dictCache[key] = out; dictDirty = true; saveDict();
-        return out;
+        return cacheWordDetail(key, out);
       }
     }
   } catch (e) { /* 网络异常：返回 null，前端降级为只显示词书释义 */ } finally {

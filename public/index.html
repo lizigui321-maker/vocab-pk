@@ -2171,12 +2171,19 @@ function fetchDetail(word, lang, cb, force, wait){
       .catch(function(){ finish(null); });
   }
 }
-/* 兼容旧调用：只需要音标/音频小标签 */
+/* 兼容旧调用：只需要音标/音频小标签；无音标时强制在线富化（wait=1），避免一直停留在无音标的词书缓存 */
 function fetchIPA(word, lang, cb){
+  var key = detailKey(word, lang);
+  var hit = DETAIL_CACHE[key];
+  if (hit && (hit.ipa || hit.ipaUs || hit.audio)) {
+    cb({ ipa: hit.ipa || hit.ipaUs || '', audio: hit.audio || '' });
+    return;
+  }
+  // 本地无音标（含旧缓存只有词书义）：强制在线富化，绕过无音标缓存
   fetchDetail(word, lang, function(d){
     if (!d || (!d.ipa && !d.ipaUs && !d.audio)) { cb(null); return; }
     cb({ ipa: d.ipa || d.ipaUs || '', audio: d.audio || '' });
-  });
+  }, !!(hit && !hit.ipa && !hit.ipaUs), true);
 }
 /* 为列表中的单词异步填充音标（并发受限，避免一次性几百个网络请求被限流）；命中本地缓存的同步填充不递归 */
 function fillIpaCells(scope) {
@@ -2438,13 +2445,13 @@ function renderStuQuestion(){
   var dtl = $('#sqDetail');
   if (dtl) dtl.onclick = function(){ openWordDetail(q.word, qlang, { meaning: q.meaning }); };
   if (!spell) {
-    fetchDetail(q.word, qlang, function(res){
+    fetchIPA(q.word, qlang, function(res){
       // 竞态防护：异步返回时若已跳到别的题，绝不往当前 DOM 里填错词的音标（B8）
       var s2 = stu.sess;
       if (!s2 || s2.queue[s2.idx] !== q) return;
       var el = document.getElementById('sqIpa');
-      if (!el || !res || (!res.ipa && !res.ipaUs)) return;
-      el.textContent = '/' + (res.ipa || res.ipaUs) + '/';
+      if (!el || !res || !res.ipa) return;
+      el.textContent = '/' + res.ipa + '/';
     });
     // 注意：新词详解不再在「出题前」弹出（否则等于把答案先给出来，太蠢）；
     // 改为答完本题后再弹，见 stuPick / stuSpellSubmit。这里只 fetching 音标小提示。

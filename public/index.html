@@ -1152,8 +1152,14 @@ function renderHome(){
   applyTheme();
   var topbar =
     '<div class="topbar" style="justify-content:space-between">' +
-      '<span style="display:flex;align-items:center;gap:8px"><img src="/panghu-avatar.jpg" alt="胖虎" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)" /><span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span></span>' +
-      '<span><button class="theme-toggle" id="thBtn">🌙</button> <button class="copybtn" id="fbBtn">💬 反馈</button> <button class="copybtn" id="setBtn">⚙️ 设置</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
+      '<span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span>' +
+      '<span style="display:flex;align-items:center;gap:8px">' +
+        '<button class="theme-toggle" id="thBtn">🌙</button>' +
+        '<button class="copybtn" id="fbBtn">💬 反馈</button>' +
+        '<button class="copybtn" id="setBtn">⚙️ 设置</button>' +
+        '<button class="copybtn" id="logoutBtn">退出</button>' +
+        '<img src="/panghu-avatar.jpg" alt="胖虎" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--brand);flex:none" />' +
+      '</span>' +
     '</div>';
   app.innerHTML = topbar + '<div class="tagline"><span class="spin"></span></div>';
   api('/api/study/overview', null, 'GET')

@@ -22,7 +22,7 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
-const APP_VERSION = '1.4.9';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.10';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -455,7 +455,7 @@ const DICT_MAX = 3000;                 // 缓存上限，超出后按时间淘�
    否则磁盘里旧版缓存会被原样读回，新的去重规则根本不会生效，
    用户看到的是「明明修了却还是一堆近义项」（这个坑踩过一次）。
    启动时会自动丢弃版本不符的旧条目，让它们按新规则重新生成。 */
-const DICT_VER = 4; // 4: books.json 修正 native/naive 释义互换（雅思词书 native 错写成「天真的」），淘汰旧缓存以重建
+const DICT_VER = 5; // 5: books.json 再修正 9 处释义互换（interact/enthusiasm/unconscious/offer/lock/as/comprise/stereotype/conversely 错用他词释义），淘汰旧缓存以重建
 let dictCache = loadJSON(DICT_FILE, {});
 if (!dictCache || typeof dictCache !== 'object' || Array.isArray(dictCache)) dictCache = {};
 /* 淘汰旧版本缓存条目：只针对磁盘里读出来的富化结果（带 v 字段的才是本版本写的）。

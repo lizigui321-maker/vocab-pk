@@ -20,7 +20,7 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
-const APP_VERSION = '1.4.4';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.5';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -436,7 +436,7 @@ const DICT_MAX = 3000;                 // 缓存上限，超出后按时间淘�
    否则磁盘里旧版缓存会被原样读回，新的去重规则根本不会生效，
    用户看到的是「明明修了却还是一堆近义项」（这个坑踩过一次）。
    启动时会自动丢弃版本不符的旧条目，让它们按新规则重新生成。 */
-const DICT_VER = 2;
+const DICT_VER = 3;
 let dictCache = loadJSON(DICT_FILE, {});
 if (!dictCache || typeof dictCache !== 'object' || Array.isArray(dictCache)) dictCache = {};
 /* 淘汰旧版本缓存条目：只针对磁盘里读出来的富化结果（带 v 字段的才是本版本写的）。
@@ -840,7 +840,11 @@ function mergeBookOnline(book, online) {
     if (s && s.def && !isDup(s.def)) senses.push({ pos: s.pos || '', def: s.def });
   }
   const bookDefs = (book.senses || []).map((s) => s.def);
-  for (const s of (online.senses || [])) {
+  // dictionaryapi.dev 给出的是英文释义；词书已有中文释义时，不把这些英文义项混入弹窗，
+  // 只取它的音标/音频/例句等。自定义词书里的词没有 book.senses 时，才保留英文释义兜底。
+  const hasChineseBook = (book.senses || []).some((s) => /[\u4e00-\u9fff]/.test(s.def || ''));
+  const onlineSenses = (online.src === 'dictapi' && hasChineseBook) ? [] : (online.senses || []);
+  for (const s of onlineSenses) {
     if (!s || !s.def) continue;
     const segs = String(s.def).split(/[；;]/).map((x) => x.trim()).filter(Boolean);
     const novel = segs.filter((seg) => !isDupDef(seg, bookDefs) && !isDup(seg));
@@ -943,26 +947,35 @@ async function _fetchWordDetail(w, key, lang) {
         return cacheWordDetail(key, out);
       }
     } else {
-      const d = await fetchJSON('https://dict.youdao.com/jsonapi?q=' + q + '&doctype=json', 6000);
-      const p = parseYoudao(d, w);
-      if (p.senses.length) {
-        // 有道没给音标/音频时，用 dictionaryapi.dev 补齐（不阻塞：拿不到就用有道的发音地址）
+      // 1) 有道主力源（英文）。若 youdao 完全失败（网络被拦截/超时），仍然继续走 fallback，
+      //    而不是整条 catch 跳过 dictapi。生产环境偶发 youdao 不可达时，音标至少能从 dictapi 回来。
+      let p = null;
+      try {
+        const d = await fetchJSON('https://dict.youdao.com/jsonapi?q=' + q + '&doctype=json', 6000);
+        p = parseYoudao(d, w);
+      } catch (e) { console.log('[dict] youdao failed for', w, '-', e.message); }
+      if (p && p.senses.length) {
+        // 有道没给音标/音频时，用 dictionaryapi.dev 补齐
         if (!p.ipaUs && !p.ipa) {
           try {
             const d2 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
             const p2 = parseDictApi(d2, w);
             if (p2) { if (p2.ipa) p.ipa = p2.ipa; if (p2.audio) p.audio = p2.audio; }
-          } catch (e) { /* 忽略：音标是加分项，不是必需 */ }
+          } catch (e) { console.log('[dict] dictapi(ipa) failed for', w, '-', e.message); }
         }
         const out = buildDetail(w, 'en', p, 'youdao');
         return cacheWordDetail(key, out);
       }
-      const d3 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
-      const p3 = parseDictApi(d3, w);
-      if (p3) {
-        const out = buildDetail(w, 'en', p3, 'dictapi');
-        return cacheWordDetail(key, out);
-      }
+      // 2) 有道失败/无结果：回退 dictionaryapi.dev（至少能补音标；非词书词也能给出英文释义）
+      try {
+        const d3 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
+        const p3 = parseDictApi(d3, w);
+        if (p3) {
+          console.log('[dict] dictapi fallback used for', w);
+          const out = buildDetail(w, 'en', p3, 'dictapi');
+          return cacheWordDetail(key, out);
+        }
+      } catch (e) { console.log('[dict] dictapi fallback failed for', w, '-', e.message); }
     }
   } catch (e) { /* 网络异常：返回 null，前端降级为只显示词书释义 */ } finally {
     dictConcurrent -= 1; // 无论成败都要释放并发名额

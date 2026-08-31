@@ -223,8 +223,12 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 [data-theme="dark"] .chip{color:var(--ink);}
 .chip b{color:var(--brand)}
 .chip.mode{background:linear-gradient(135deg,rgba(79,70,229,.1),rgba(124,58,237,.1));border-color:rgba(79,70,229,.25)}
-.scores{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-.schip{background:var(--card);border-radius:13px;padding:8px 13px;font-size:13.5px;box-shadow:var(--shadow-sm);border:var(--hair);display:flex;align-items:center;gap:7px}
+/* 对战玩家分数条：始终单行横向滚动，绝不换行，避免多人房间把选项挤到屏幕外（含平板/横屏手机等 >480px 视口） */
+.scores{display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;margin-bottom:14px;padding-bottom:2px;-webkit-overflow-scrolling:touch}
+.schip{background:var(--card);border-radius:13px;padding:8px 13px;font-size:13.5px;box-shadow:var(--shadow-sm);border:var(--hair);display:flex;align-items:center;gap:7px;flex:none}
+/* 对战顶栏（房间/词书/模式/题号/排名）同样单行横向滚动，避免窄屏换行挤掉选项 */
+.pk-top{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pk-top .chip{flex:none}
 .schip .nm{max-width:7em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .schip .sc{font-weight:800;color:var(--brand)}
 .schip.ans .sc{color:var(--ok)}
@@ -524,7 +528,7 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
   .stu-today{ flex-direction:column; align-items:flex-start; gap:10px; }
   .stu-ring{ width:78px; height:78px; }
   .roomcode-big{ font-size:38px; letter-spacing:8px; }
-  .scores{ justify-content:center; }
+  .scores{ justify-content:flex-start; }
   .vt-btns button{ padding:13px 0; font-size:15px; }
   .btn{ font-size:16px; }
 }
@@ -2322,11 +2326,20 @@ function openWordDetail(word, lang, opts){
     }
     body.innerHTML = html || '<div class="wd-loading">暂无更多释义</div>';
   }
-  fetchDetail(word, lang, renderDetail);
-  /* 首次打开先即时展示词书义；后台富化（有道/词典API）完成后，自动补刷一次，
-     把「默认/缺省」这类词书里没有的日常义补进弹窗，无需用户手动重开。 */
-  setTimeout(function () { if (document.body.contains(ov)) fetchDetail(word, lang, renderDetail, true); }, 2500);
-  setTimeout(function () { if (document.body.contains(ov)) fetchDetail(word, lang, renderDetail, true); }, 5200);
+  /* 首次打开先即时展示词书义（命中缓存则直接出完整释义）；后台富化（有道/词典API）完成后自动补刷。
+     用轮询而非一次性刷新：有道偶发慢/排队时，多等几秒也能拿到音标与「默认/缺省」这类日常义，
+     无需用户手动重开弹窗。最多补刷 5 次（约 12.5s），一旦拿到音标或联网释义即停止。 */
+  var wdPollTries = 0;
+  function wdRenderEnriched(d) {
+    if (!document.body.contains(ov)) return;
+    renderDetail(d);
+    var enriched = d && (d.ipa || d.ipaUs || (d.src && /youdao|dictapi/.test(d.src)));
+    if (!enriched && wdPollTries < 5) {
+      wdPollTries++;
+      setTimeout(function () { fetchDetail(word, lang, wdRenderEnriched, true); }, 2500);
+    }
+  }
+  fetchDetail(word, lang, wdRenderEnriched);
   return ov;
 }
 /* 学习中新词首次出现的自动详解：每个词只自动弹一次（按当前账号 localStorage 记录） */

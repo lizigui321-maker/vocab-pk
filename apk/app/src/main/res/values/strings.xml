@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">背他喵的</string>
+    <string name="app_name">胖虎单词PK</string>
     <!-- 把这里改成你部署后的服务器地址（必须 https，手机才能稳定访问）。
          例如部署到 Render 后：https://vocabpk.onrender.com -->
     <string name="server_url">https://YOUR_DEPLOYED_URL</string>

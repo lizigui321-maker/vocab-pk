@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-echo 正在停止 背他喵的 服务...
+echo 正在停止 胖虎单词PK 服务...
 
 REM 1) 先停看门狗（run-service.ps1），否则它会立刻把子进程拉起来
 powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*run-service.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"

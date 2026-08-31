@@ -1,4 +1,4 @@
-// 生成「背他喵的」的 App 图标（纯 Node 手写 PNG 编码，无需任何图片库）
+// 生成「胖虎单词PK」的 App 图标（纯 Node 手写 PNG 编码，无需任何图片库）
 // 输出：public/icon-192.png、public/icon-512.png
 //      apk 工程各密度 mipmap 的 ic_launcher.png / ic_launcher_round.png
 // 图案：蓝紫渐变背景 + 白色猫脸（两只三角耳 + 圆脸 + 眼睛 + 鼻子）

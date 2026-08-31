@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 背他喵的 · 一键编译 APK（macOS / Linux）
+# 胖虎单词PK · 一键编译 APK（macOS / Linux）
 set -e
 cd "$(dirname "$0")"
 

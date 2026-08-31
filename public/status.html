@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>背他喵的 · 状态监视器</title>
+<title>胖虎单词PK · 状态监视器</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -45,7 +45,7 @@
 </head>
 <body>
   <div class="card">
-    <h1><span class="logo">🐱</span> 背他喵的 状态监视器</h1>
+    <h1><span class="logo">🐱</span> 胖虎单词PK 状态监视器</h1>
     <p class="sub">实时显示服务是否正在运行</p>
 
     <div class="row">
@@ -95,7 +95,7 @@
         detL.innerHTML = '运行中 · 端口 ' + info.port + ' · <a class="url" href="' + LOCAL + '" target="_blank">' + LOCAL + '</a>';
         document.getElementById('btnOpen').href = LOCAL;
       } else {
-        detL.textContent = '未运行（双击桌面「背他喵的」启动）';
+        detL.textContent = '未运行（双击桌面「胖虎单词PK」启动）';
       }
       // 公网隧道：优先用 info.publicUrl，并实测它是否可达
       var pub = info && info.publicUrl ? info.publicUrl : '';

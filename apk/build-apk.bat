@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 REM ============================================================
-REM  背他喵的 · 一键编译 APK（调试版，可直接装到手机测试）
+REM  胖虎单词PK · 一键编译 APK（调试版，可直接装到手机测试）
 REM  前提：已安装 Android SDK 命令行工具（或 Android Studio），
 REM        且 gradle 在 PATH 中。首次会自动下载 Gradle 8.5。
 REM  若没有 gradle，请先执行：gradle wrapper --gradle-version 8.5

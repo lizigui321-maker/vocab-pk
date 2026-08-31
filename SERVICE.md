@@ -1,12 +1,12 @@
 # 本地常驻服务（无需云，电脑开着即在线）
 
-把背他喵的 做成开机自启、崩溃自拉起、隧道断开自动重连的常驻服务。
+把胖虎单词PK 做成开机自启、崩溃自拉起、隧道断开自动重连的常驻服务。
 
 ## 一键安装（只需一次，无需管理员）
 
 双击 `install-service.bat`：
 
-- 把自启脚本放进你的「启动」文件夹（路径：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\背他喵的-自启.vbs`），**每次登录 Windows 自动启动**；
+- 把自启脚本放进你的「启动」文件夹（路径：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\胖虎单词PK-自启.vbs`），**每次登录 Windows 自动启动**；
 - 立即启动一次服务。
 
 > 说明：原计划用 Windows 计划任务（schtasks）实现自启，但创建计划任务需要管理员权限，本机默认被 UAC 拦截。改用「启动文件夹」方案同样能达到开机自启效果，且不需要管理员。
@@ -14,7 +14,7 @@
 ## 日常使用
 
 - 不用再手动双击启动脚本，登录即在线。
-- 查看状态：桌面「背他喵的 状态」或浏览器打开 `http://localhost:3000/status.html`。
+- 查看状态：桌面「胖虎单词PK 状态」或浏览器打开 `http://localhost:3000/status.html`。
 - 停止服务：双击 `stop-server.bat`（会先停看门狗再停进程，避免被立刻拉起）。
 - 卸载自启：双击 `uninstall-service.bat`。
 

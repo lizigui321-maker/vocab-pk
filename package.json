@@ -2,7 +2,7 @@
   "name": "vocab-pk",
   "version": "1.0.0",
   "private": true,
-  "description": "背他喵的 · 背单词与单词对战（零依赖 Node 服务器 + 网页/App 客户端）",
+  "description": "胖虎单词PK · 背单词与单词对战（零依赖 Node 服务器 + 网页/App 客户端）",
   "scripts": {
     "build": "node tools/build-books.js",
     "prestart": "node tools/build-books.js",

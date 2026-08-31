@@ -1,4 +1,4 @@
-// 背他喵的 Service Worker：让网页可「添加到主屏幕」当 App 安装
+// 胖虎单词PK Service Worker：让网页可「添加到主屏幕」当 App 安装
 // 策略：接口(/api)始终走网络（保证实时对战）；静态资源缓存优先，离线也能打开首页
 const CACHE = 'vocabpk-v16';
 const SHELL = ['/', '/index.html', '/books.bundle.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];

@@ -1,5 +1,5 @@
 /*
- * 背他喵的 · 背单词与单词对战服务器（局域网 / 公网均可）
+ * 胖虎单词PK · 背单词与单词对战服务器（局域网 / 公网均可）
  * 零 npm 依赖：Node.js 内置 http + SSE（Server-Sent Events）实现实时对战
  * 启动：node server.js   （默认端口 3000，可用 PORT=xxxx 覆盖）
  * 注：公网（Cloudflare 隧道）下 SSE 可能被链路缓冲，前端会自动降级为 /api/state 轮询
@@ -3080,7 +3080,7 @@ loadStoreFromKV().then(async () => {
   const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.KOYEB_APP_PUBLIC_DOMAIN || '';
   const ips = lanIPs();
   console.log('====================================');
-  console.log('  背他喵的 · 背单词+单词对战 已启动');
+  console.log('  胖虎单词PK · 背单词+单词对战 已启动');
   console.log('  离线词典:  ' + BOOK_INDEX_SIZE + ' 条词书词条已建索引（内置词零网络即时显示）');
   console.log('====================================');
   if (!KV_ON) {

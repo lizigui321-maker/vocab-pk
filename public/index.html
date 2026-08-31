@@ -151,6 +151,9 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .btn.ghost{background:transparent;color:var(--brand);border:1.5px solid rgba(79,70,229,.45);box-shadow:none}
 [data-theme="dark"] .btn.ghost{background:transparent;border-color:rgba(129,140,248,.4);}
 .btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+/* 「临时加学」强调按钮：绿色渐变，与紫色主按钮区分，突出「继续加量」的语义 */
+.btn.add{background:linear-gradient(135deg,#16a34a 0%,#059669 100%);box-shadow:0 8px 24px -6px rgba(22,163,74,.45)}
+[data-theme="dark"] .btn.add{background:linear-gradient(135deg,#34d399 0%,#10b981 100%);box-shadow:0 8px 24px -6px rgba(52,211,153,.35)}
 .hint{font-size:12.5px;color:var(--sub);line-height:1.7;margin-top:14px;background:var(--well);border-radius:12px;padding:10px 12px}
 [data-theme="dark"] .hint{background:var(--well);}
 .hint b{color:#334155}
@@ -2033,11 +2036,15 @@ function renderStuDash(){
       '<button data-v="spell" class="' + (stu.inputMode === 'spell' ? 'on' : '') + '">⌨️ 拼写题（看义写词）</button>' +
     '</div>' +
     '<button class="btn" id="stuGo">' + (stuGoReview ? '开始复习 🔁' : '开始学习 📖') + '</button>' +
-    '<button class="btn ghost" id="stuReview">🎯 智能复习' +
+    /* 今日学完后，主按钮本身就是「智能复习」(stuStart('review'))，
+       再并排放一个「🎯 智能复习」就是两个功能完全相同的按钮，故此时隐藏后者；
+       未学完时主按钮走 daily（当前词书新词+到期复习），与智能复习不同，才需要两个入口。 */
+    (stuGoReview ? '' :
+      '<button class="btn ghost" id="stuReview">🎯 智能复习' +
       (ov.review
         ? '（待复习 ' + ov.review.due + (ov.review.weak ? ' · 易错 ' + ov.review.weak : '') + '）'
         : '（' + ov.wrongCount + '）') +
-      '</button>' +
+      '</button>') +
     (t.newRemaining === 0 && t.newPoolRemaining > 0 ?
       '<div class="stu-extra"><span class="lbl">🌱 临时加学</span>' +
       '<div class="seg sm" id="extraSeg">' +
@@ -2045,7 +2052,7 @@ function renderStuDash(){
         '<button data-v="20" class="' + (stu.extraStep === 20 ? 'on' : '') + '">20</button>' +
         '<button data-v="50" class="' + (stu.extraStep === 50 ? 'on' : '') + '">50</button>' +
       '</div>' +
-      '<button class="btn ghost" id="stuExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
+      '<button class="btn add" id="stuExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
   '</div>' +
   '<div class="card">' +
     '<div class="wb-head"><span class="wb-count">学习概况</span></div>' +
@@ -2076,7 +2083,7 @@ function renderStuDash(){
   $('#stuBack').onclick = function(){ page = 'home'; renderHome(); };
   var ss = document.getElementById('stuSet'); if (ss) ss.onclick = function(){ page = 'settings'; renderSettings(); };
   $('#stuGo').onclick = function(){ stuStart(stuGoReview ? 'review' : 'daily'); };
-  $('#stuReview').onclick = function(){ stuStart('review'); };
+  var sr = document.getElementById('stuReview'); if (sr) sr.onclick = function(){ stuStart('review'); };
   var se = document.getElementById('stuExtra'); if (se) se.onclick = function(){ stuStart('daily', null, '临时加学', stu.extraStep); };
   bindExtraSeg('extraSeg', 'stuExtra');
   $('#stuPlanEdit').onclick = function(){ renderStudyPlan(false); };
@@ -2778,7 +2785,7 @@ function renderStuSummary(){
         '<button data-v="20" class="' + (stu.extraStep === 20 ? 'on' : '') + '">20</button>' +
         '<button data-v="50" class="' + (stu.extraStep === 50 ? 'on' : '') + '">50</button>' +
       '</div>' +
-      '<button class="btn" id="ssExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
+      '<button class="btn add" id="ssExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
     '<button class="btn ghost" id="ssHome">返回学习主页</button>' +
   '</div>';
   app.querySelectorAll('.wl-row [data-spk]').forEach(function(el){

@@ -11,6 +11,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const net = require('net');
+const tls = require('tls');
 
 const PORT = process.env.PORT || 3000;
 const PUB = path.join(__dirname, 'public');
@@ -20,7 +22,7 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
-const APP_VERSION = '1.4.7';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.8';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -138,6 +140,23 @@ let leaseOwner = true;
 let kvUsable = KV_ON;
 let kvLastError = null;    // 最近一次云端错误（供 /api/storage-status 诊断）
 let kvLastWriteAt = 0;
+/* ===== 作者反馈（文字 + 截图）=====
+ * 用户在软件里填表提交后，自动发邮件到作者邮箱（默认 lizigui321@gmail.com）。
+ * 邮件发送走 Node 内置 tls 模块实现的极简 SMTP 客户端，零依赖；凭据通过环境变量注入，绝不写进代码。
+ * 未配置 SMTP 时，反馈仍会写入本地 feedback.jsonl（兜底，绝不丢），只是不发邮件。
+ * 渲染端 Render 上需设置：SMTP_USER / SMTP_PASS（Gmail 用「应用专用密码」）/ 可选 SMTP_HOST SMTP_PORT SMTP_SECURE / FEEDBACK_TO / FEEDBACK_ADMIN_TOKEN（用于后台查看反馈列表）。 */
+const FEEDBACK_TO = process.env.FEEDBACK_TO || 'lizigui321@gmail.com';
+const FEEDBACK_DIR = path.join(STORE, 'feedback');
+const FEEDBACK_ADMIN_TOKEN = process.env.FEEDBACK_ADMIN_TOKEN || '';
+const SMTP = {
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '465', 10) || 465,
+  user: process.env.SMTP_USER || '',
+  pass: process.env.SMTP_PASS || '',
+  from: process.env.FEEDBACK_FROM || process.env.SMTP_USER || '',
+};
+const SMTP_SECURE = process.env.SMTP_SECURE ? (process.env.SMTP_SECURE === 'true') : (SMTP.port === 465);
+const SMTP_READY = !!(SMTP.user && SMTP.pass);
 let kvRateLimitedAt = 0;   // 最近一次被 Upstash 限流(429)的时刻
 let kvRateWarned = false;  // 限流告警只打一次，避免刷屏
 const kvWriteQueue = [];   // 写入失败的重试队列（网络抖动不再静默丢数据）
@@ -1903,6 +1922,164 @@ const MIME = {
   '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
 };
 
+/* ===================== 作者反馈：存储 + 频率限制 + 极简 SMTP ===================== */
+const feedbackHits = new Map();   // ip -> { count, first }：每 IP 每小时最多 12 条，防刷
+function feedbackThrottled(ip) {
+  const now = Date.now();
+  let e = feedbackHits.get(ip);
+  if (!e || now - e.first > 3600 * 1000) { feedbackHits.set(ip, { count: 1, first: now }); return false; }
+  e.count++;
+  return e.count > 12;
+}
+let feedbackMem = [];             // 内存兜底（最近 100 条），文件才是主存储
+function ensureFeedbackDir() { try { if (!fs.existsSync(FEEDBACK_DIR)) fs.mkdirSync(FEEDBACK_DIR, { recursive: true }); } catch (e) {} }
+const FEEDBACK_FILE = path.join(FEEDBACK_DIR, 'feedback.jsonl');
+function saveFeedback(rec) {
+  feedbackMem.push(rec);
+  if (feedbackMem.length > 100) feedbackMem = feedbackMem.slice(-100);
+  try {
+    ensureFeedbackDir();
+    fs.appendFileSync(FEEDBACK_FILE, JSON.stringify(rec) + '\n', 'utf8');
+  } catch (e) { console.error('[反馈] 写入本地失败', (e && e.message) || e); }
+}
+function recentFeedback() {
+  try {
+    if (fs.existsSync(FEEDBACK_FILE)) {
+      const lines = fs.readFileSync(FEEDBACK_FILE, 'utf8').trim().split(/\r?\n/).filter(Boolean);
+      const arr = lines.map(function (l) { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
+      return arr.slice(-50).reverse();
+    }
+  } catch (e) {}
+  return feedbackMem.slice().reverse();
+}
+
+function b64(s) { return Buffer.from(s, 'utf8').toString('base64'); }
+
+// 读取一条 SMTP 响应（兼容多行 250-.../250 结尾），遇到「<3位码> 」（空格）即视为结束
+function smtpRead(sock) {
+  return new Promise(function (resolve, reject) {
+    let acc = '';
+    function onData(c) {
+      acc += c.toString('binary');
+      const lines = acc.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        if (/^\d{3} /.test(lines[i])) {
+          const code = parseInt(lines[i].slice(0, 3), 10);
+          sock.removeListener('data', onData);
+          resolve({ code: code, text: acc });
+          return;
+        }
+      }
+    }
+    sock.on('data', onData);
+    sock.once('error', function (e) { sock.removeListener('data', onData); reject(e); });
+  });
+}
+function smtpWrite(sock, line) {
+  return new Promise(function (resolve, reject) {
+    sock.write(line + '\r\n', function (err) { if (err) reject(err); else resolve(); });
+  });
+}
+function buildFeedbackMime(opts) {
+  const boundary = 'vocabpkfb' + Date.now();
+  const now = new Date().toUTCString();
+  const meta = (opts.meta && opts.meta.at || '') + '\n来源账号：' + ((opts.meta && opts.meta.user) || '未登录') +
+    '\nIP：' + ((opts.meta && opts.meta.ip) || '') + '\nUA：' + ((opts.meta && opts.meta.ua) || '');
+  const body = '【用户反馈】\n' + meta + '\n\n' + (opts.text || '') + '\n';
+  const parts = [];
+  parts.push('Date: ' + now);
+  parts.push('From: ' + SMTP.from);
+  parts.push('To: ' + FEEDBACK_TO);
+  parts.push('Subject: =?UTF-8?B?' + b64(opts.subject || 'vocab-pk 反馈') + '?=');
+  parts.push('Message-ID: <' + Date.now() + '.' + Math.random().toString(36).slice(2) + '@vocab-pk>');
+  parts.push('MIME-Version: 1.0');
+  parts.push('Content-Type: multipart/mixed; boundary="' + boundary + '"');
+  parts.push('');
+  parts.push('--' + boundary);
+  parts.push('Content-Type: text/plain; charset=UTF-8');
+  parts.push('Content-Transfer-Encoding: 8bit');
+  parts.push('');
+  parts.push(body);
+  if (opts.imageBase64) {
+    const ext = (opts.imageType === 'jpeg') ? 'jpg' : (opts.imageType || 'png');
+    const mimeType = (opts.imageType === 'jpeg') ? 'image/jpeg' : ('image/' + (opts.imageType || 'png'));
+    parts.push('--' + boundary);
+    parts.push('Content-Type: ' + mimeType + '; name="screenshot.' + ext + '"');
+    parts.push('Content-Transfer-Encoding: base64');
+    parts.push('Content-Disposition: attachment; filename="screenshot.' + ext + '"');
+    parts.push('');
+    const b64str = opts.imageBase64;
+    let wrapped = '';
+    for (let i = 0; i < b64str.length; i += 76) wrapped += b64str.slice(i, i + 76) + '\r\n';
+    parts.push(wrapped.replace(/\r\n$/, ''));
+  }
+  parts.push('--' + boundary + '--');
+  return parts.join('\r\n');
+}
+/* 极简 SMTP 客户端（零依赖，仅用内置 tls/net）。返回 true=已发送，false=未发送/失败。
+   调用方不必判返回值——反馈已落本地；邮件只是锦上添花。 */
+async function sendFeedbackEmail(opts) {
+  if (!SMTP_READY) { console.log('[反馈] SMTP 未配置，跳过邮件（反馈已写入本地 feedback.jsonl）'); return false; }
+  let sock = null;
+  try {
+    if (SMTP_SECURE) {
+      sock = tls.connect({ host: SMTP.host, port: SMTP.port, rejectUnauthorized: true, timeout: 15000 });
+    } else {
+      sock = net.connect({ host: SMTP.host, port: SMTP.port, timeout: 15000 });
+    }
+    await new Promise(function (res, rej) {
+      sock.once('secureConnect', res); sock.once('connect', res);
+      sock.once('error', rej);
+      sock.once('timeout', function () { rej(new Error('SMTP 连接超时')); });
+    });
+    let r = await smtpRead(sock);
+    if (r.code !== 220) throw new Error('握手失败 ' + r.code);
+    await smtpWrite(sock, 'EHLO vocabpk');
+    r = await smtpRead(sock);
+    if (r.code !== 250) throw new Error('EHLO 失败 ' + r.code);
+    if (!SMTP_SECURE) {                 // STARTTLS 升级
+      await smtpWrite(sock, 'STARTTLS');
+      r = await smtpRead(sock);
+      if (r.code !== 220) throw new Error('STARTTLS 失败 ' + r.code);
+      sock = tls.connect({ socket: sock, rejectUnauthorized: true });
+      await new Promise(function (res, rej) { sock.once('secureConnect', res); sock.once('error', rej); });
+      await smtpWrite(sock, 'EHLO vocabpk');
+      r = await smtpRead(sock);
+      if (r.code !== 250) throw new Error('TLS 后 EHLO 失败 ' + r.code);
+    }
+    await smtpWrite(sock, 'AUTH LOGIN');
+    r = await smtpRead(sock);
+    if (r.code !== 334) throw new Error('AUTH 失败 ' + r.code);
+    await smtpWrite(sock, b64(SMTP.user));
+    r = await smtpRead(sock);
+    if (r.code !== 334) throw new Error('用户名被拒 ' + r.code);
+    await smtpWrite(sock, b64(SMTP.pass));
+    r = await smtpRead(sock);
+    if (r.code !== 235) throw new Error('密码被拒（Gmail 请用「应用专用密码」而非登录密码）');
+    await smtpWrite(sock, 'MAIL FROM:<' + SMTP.from + '>');
+    r = await smtpRead(sock);
+    if (r.code !== 250) throw new Error('MAIL FROM 失败 ' + r.code);
+    await smtpWrite(sock, 'RCPT TO:<' + FEEDBACK_TO + '>');
+    r = await smtpRead(sock);
+    if (r.code !== 250) throw new Error('RCPT TO 失败 ' + r.code);
+    await smtpWrite(sock, 'DATA');
+    r = await smtpRead(sock);
+    if (r.code !== 354) throw new Error('DATA 失败 ' + r.code);
+    const raw = buildFeedbackMime(opts);
+    const stuffed = raw.split('\r\n').map(function (l) { return l.charAt(0) === '.' ? '.' + l : l; }).join('\r\n');
+    await new Promise(function (res, rej) { sock.write(stuffed + '\r\n.\r\n', function (err) { if (err) rej(err); else res(); }); });
+    r = await smtpRead(sock);
+    if (r.code !== 250) throw new Error('发送失败 ' + r.code);
+    await smtpWrite(sock, 'QUIT').catch(function () {});
+    try { sock.end(); } catch (e) {}
+    return true;
+  } catch (e) {
+    console.error('[反馈] 邮件发送异常:', (e && e.message) || e);
+    try { if (sock && sock.destroy) sock.destroy(); } catch (e2) {}
+    return false;
+  }
+}
+
 function serveStatic(req, res) {
   let p;
   try { p = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch (e) { p = '/'; }
@@ -2823,6 +3000,51 @@ const server = http.createServer(async (req, res) => {
       } : (acc.study || null);
       saveAccounts();
       return send(res, 200, { ok: true });
+    }
+    // ---------------- 作者反馈（文字 + 截图）：任何人可提交，自动发邮件给作者 ----------------
+    if (req.method === 'GET' && p === '/api/feedback') {
+      const admin = u.searchParams.get('admin');
+      if (!FEEDBACK_ADMIN_TOKEN || admin !== FEEDBACK_ADMIN_TOKEN) return send(res, 403, { error: '无权限' });
+      return send(res, 200, { items: recentFeedback() });
+    }
+    if (req.method === 'POST' && p === '/api/feedback') {
+      const b = await readBody(req);
+      if (b.__tooLarge) return send(res, 413, { error: '请求体过大' });
+      const ip = clientIp(req);
+      if (feedbackThrottled(ip)) return send(res, 429, { error: '反馈过于频繁，请稍后再试（每小时上限 12 条）' });
+      const text = String(b.text || '').trim().slice(0, 2000);
+      const image = (typeof b.image === 'string') ? b.image : '';
+      if (!text && !image) return send(res, 400, { error: '请填写内容或上传截图' });
+      let imgB64 = '', imgType = 'png';
+      if (image) {
+        const m = /^data:image\/(png|jpe?g|gif|webp);base64,(.+)$/i.exec(image);
+        if (!m) return send(res, 400, { error: '截图格式不支持（仅 png/jpg/gif/webp）' });
+        if (m[2].length > 8 * 1024 * 1024) return send(res, 400, { error: '截图过大（请 < 8MB）' });
+        imgType = m[1].toLowerCase() === 'jpg' ? 'jpeg' : m[1].toLowerCase();
+        imgB64 = m[2];
+      }
+      const acc = authUser(tokenOf(req, u));
+      const rec = {
+        at: new Date().toISOString(),
+        ip: ip,
+        ua: String(req.headers['user-agent'] || '').slice(0, 300),
+        user: (acc && acc.username) || null,
+        text: text,
+        hasImage: !!imgB64,
+        emailed: false,
+      };
+      saveFeedback(rec);
+      try {
+        const sent = await sendFeedbackEmail({
+          subject: '[vocab-pk 反馈] ' + (text.slice(0, 40) || (imgB64 ? '(含截图)' : '(空)')),
+          text: text || '(无文字，仅截图)',
+          imageBase64: imgB64,
+          imageType: imgType,
+          meta: rec,
+        });
+        rec.emailed = !!sent;
+      } catch (e) { console.error('[反馈] 邮件异常', (e && e.message) || e); }
+      return send(res, 200, { ok: true, emailed: rec.emailed });
     }
     return serveStatic(req, res);
   } catch (e) {

@@ -269,6 +269,18 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 @keyframes wdPop{0%{opacity:0;transform:translateY(18px) scale(.96)}100%{opacity:1;transform:none}}
 .wd-overlay.wd-out{opacity:0}
 .wd-sheet.wd-out{transform:translateY(12px) scale(.97);opacity:0}
+/* 作者反馈弹窗 */
+.fb-overlay{position:fixed;inset:0;background:rgba(0,0,0,.52);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:90;padding:18px}
+.fb-sheet{background:var(--card);border-radius:24px;width:100%;max-width:520px;max-height:88vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,.32);border:var(--hair);padding:18px 22px 22px;animation:wdPop .28s var(--ease)}
+.fb-sheet .fl{display:block;font-size:13px;color:#64748b;margin:14px 0 6px;font-weight:600}
+.fb-sheet .textarea{width:100%;min-height:118px;resize:vertical;padding:12px 14px;border:1.5px solid var(--line);border-radius:14px;font-size:14.5px;font-family:inherit;color:var(--ink);background:var(--card);box-sizing:border-box;outline:none}
+.fb-sheet .textarea:focus{border-color:var(--brand);box-shadow:0 0 0 4px rgba(79,70,229,.14)}
+.fb-sheet input[type=file]{width:100%;font-size:13px;color:var(--ink)}
+.fb-preview{margin-top:10px}
+.fb-preview img{max-width:100%;max-height:200px;border-radius:12px;border:var(--hair)}
+.fb-status{margin-top:10px;font-size:13px;min-height:18px;color:var(--muted,#64748b)}
+.fb-status.ok{color:var(--ok)} .fb-status.bad{color:var(--bad)}
+.fb-foot{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
 .wd-scroll{overflow-y:auto;padding:22px 22px 6px;-webkit-overflow-scrolling:touch}
 .wd-x{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:50%;border:none;background:rgba(120,120,128,.14);color:var(--sub);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:2;transition:background .15s,transform .12s var(--ease)}
 .wd-x:hover{background:rgba(120,120,128,.28);color:var(--ink)}
@@ -773,6 +785,57 @@ function api(path, body, method){
     });
   });
 }
+/* ---------- 作者反馈弹窗（文字 + 截图，提交后自动发邮件给作者） ---------- */
+function openFeedback(){
+  document.querySelectorAll('.fb-overlay').forEach(function(o){ o.remove(); });
+  var ov = document.createElement('div');
+  ov.className = 'fb-overlay';
+  ov.innerHTML =
+    '<div class="fb-sheet" role="dialog" aria-modal="true" aria-label="反馈作者">' +
+      '<div class="topbar" style="justify-content:space-between;margin:0 0 6px;padding:0">' +
+        '<span class="chip">💬 反馈作者</span>' +
+        '<button class="copybtn" id="fbClose">✕</button>' +
+      '</div>' +
+      '<label class="fl">想说点什么？（bug、建议、体验都行）</label>' +
+      '<textarea id="fbText" class="textarea" maxlength="2000" placeholder="例如：背单词时音标没显示 / 希望加个功能 / 报错截图见下…"></textarea>' +
+      '<label class="fl">截图（可选，最多一张，&lt; 8MB）</label>' +
+      '<input type="file" id="fbFile" accept="image/*" />' +
+      '<div id="fbPreview" class="fb-preview"></div>' +
+      '<div id="fbStatus" class="fb-status"></div>' +
+      '<div class="fb-foot">' +
+        '<button class="btn ghost" id="fbCancel">取消</button>' +
+        '<button class="btn" id="fbSend">📨 发送</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  var fileData = null;
+  var fileInput = ov.querySelector('#fbFile');
+  var preview = ov.querySelector('#fbPreview');
+  fileInput.onchange = function(){
+    var f = fileInput.files && fileInput.files[0];
+    if (!f) { fileData = null; preview.innerHTML = ''; return; }
+    if (f.size > 8 * 1024 * 1024) { toast('图片太大，请控制在 8MB 以内'); fileInput.value = ''; fileData = null; preview.innerHTML = ''; return; }
+    if (!/^image\//.test(f.type)) { toast('请选择图片文件'); fileInput.value = ''; fileData = null; preview.innerHTML = ''; return; }
+    var rd = new FileReader();
+    rd.onload = function(){ fileData = rd.result; var img = document.createElement('img'); img.src = rd.result; preview.innerHTML = ''; preview.appendChild(img); };
+    rd.readAsDataURL(f);
+  };
+  function close(){ ov.remove(); }
+  ov.querySelector('#fbClose').onclick = close;
+  ov.querySelector('#fbCancel').onclick = close;
+  ov.onclick = function(e){ if (e.target === ov) close(); };
+  ov.querySelector('#fbSend').onclick = function(){
+    var text = ov.querySelector('#fbText').value.trim();
+    if (!text && !fileData) { toast('写点内容或加张截图再发吧'); return; }
+    var status = ov.querySelector('#fbStatus');
+    var btn = ov.querySelector('#fbSend');
+    btn.disabled = true; status.className = 'fb-status'; status.textContent = '发送中…';
+    api('/api/feedback', { text: text, image: fileData || '' })
+      .then(function(d){ status.className = 'fb-status ok'; status.textContent = (d && d.emailed ? '已收到，作者会尽快查看 🎉' : '已收到（作者会尽快查看）🎉'); setTimeout(close, 1500); })
+      .catch(function(e){ btn.disabled = false; status.className = 'fb-status bad'; status.textContent = '发送失败：' + (e.message || '未知错误'); });
+  };
+}
+
 /* ---------- 发音：真人发音优先，系统语音兜底（v2 引擎） ----------
  * 目标（需求 1）：点击小喇叭听到的是「真人/自然」读音，而不是机械电子音。
  * 策略：
@@ -1090,7 +1153,7 @@ function renderHome(){
   var topbar =
     '<div class="topbar" style="justify-content:space-between">' +
       '<span style="display:flex;align-items:center;gap:8px"><img src="/panghu-avatar.jpg" alt="胖虎" style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid var(--brand)" /><span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span></span>' +
-      '<span><button class="theme-toggle" id="thBtn">🌙</button> <button class="copybtn" id="setBtn">⚙️ 设置</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
+      '<span><button class="theme-toggle" id="thBtn">🌙</button> <button class="copybtn" id="fbBtn">💬 反馈</button> <button class="copybtn" id="setBtn">⚙️ 设置</button> <button class="copybtn" id="logoutBtn">退出</button></span>' +
     '</div>';
   app.innerHTML = topbar + '<div class="tagline"><span class="spin"></span></div>';
   api('/api/study/overview', null, 'GET')
@@ -1136,6 +1199,7 @@ function renderHome(){
       $('#fGroups').onclick = function(){ page = 'groups'; renderGroups(); };
       $('#fFriends').onclick = function(){ page = 'friends'; renderFriends(); };
       var sb = document.getElementById('setBtn'); if (sb) sb.onclick = function(){ page = 'settings'; renderSettings(); };
+      var fb = document.getElementById('fbBtn'); if (fb) fb.onclick = openFeedback;
       wireTopbar();
       // 页脚显示部署版本号：让用户直观确认「更新是否生效」（单数据源 = /api/diag）
       api('/api/diag', null, 'GET').then(function(d){ var vt = document.getElementById('ver-tag'); if (vt && d && d.version) vt.textContent = '　·　v' + d.version; }).catch(function(){});

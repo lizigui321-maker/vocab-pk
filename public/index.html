@@ -2140,7 +2140,7 @@ function parseDictApiLocal(dd, word){
   return out.senses.length ? out : null;
 }
 var _detailInflight = {}; // word:lang -> Promise，去重进行中的请求（PK 对战每帧重渲染会重复触发）
-function fetchDetail(word, lang, cb, force){
+function fetchDetail(word, lang, cb, force, wait){
   var key = detailKey(word, lang);
   if (!force && Object.prototype.hasOwnProperty.call(DETAIL_CACHE, key)) {
     var hit = DETAIL_CACHE[key];
@@ -2157,7 +2157,9 @@ function fetchDetail(word, lang, cb, force){
   }
   var done = false;
   function finish(val){ if (done) return; done = true; delete _detailInflight[key]; if (val) { val.at = Date.now(); DETAIL_CACHE[key] = val; } else { DETAIL_CACHE[key] = null; } pruneDetailCache(); saveDetailCache(); cb(val); }
-  var pr = api('/api/word?w=' + encodeURIComponent(String(word || '').trim()) + '&lang=' + (lang === 'es' ? 'es' : 'en'), null, 'GET')
+  var url = '/api/word?w=' + encodeURIComponent(String(word || '').trim()) + '&lang=' + (lang === 'es' ? 'es' : 'en');
+  if (wait) url += '&wait=1';
+  var pr = api(url, null, 'GET')
     .then(function(d){ if (d && d.ok && d.senses && d.senses.length) { finish(d); return null; } return tryDirect(); })
     .catch(function(){ return tryDirect(); });
   _detailInflight[key] = pr;
@@ -2326,20 +2328,20 @@ function openWordDetail(word, lang, opts){
     }
     body.innerHTML = html || '<div class="wd-loading">暂无更多释义</div>';
   }
-  /* 首次打开先即时展示词书义（命中缓存则直接出完整释义）；后台富化（有道/词典API）完成后自动补刷。
-     用轮询而非一次性刷新：有道偶发慢/排队时，多等几秒也能拿到音标与「默认/缺省」这类日常义，
-     无需用户手动重开弹窗。最多补刷 5 次（约 12.5s），一旦拿到音标或联网释义即停止。 */
+  /* 首次打开先即时展示词书义（命中缓存则直接出完整释义）；后台富化完成后自动补刷。
+     轮询时带 wait=1：后端会同步等在线富化完成再返回，避免重复读到还没富化好的词书义。
+     最多补刷 5 次（约 12.5s），一旦拿到音标或联网释义（youdao/dictapi/suggest）即停止。 */
   var wdPollTries = 0;
   function wdRenderEnriched(d) {
     if (!document.body.contains(ov)) return;
     renderDetail(d);
-    var enriched = d && (d.ipa || d.ipaUs || (d.src && /youdao|dictapi/.test(d.src)));
+    var enriched = d && (d.ipa || d.ipaUs || (d.src && /youdao|dictapi|suggest/.test(d.src)));
     if (!enriched && wdPollTries < 5) {
       wdPollTries++;
-      setTimeout(function () { fetchDetail(word, lang, wdRenderEnriched, true); }, 2500);
+      setTimeout(function () { fetchDetail(word, lang, wdRenderEnriched, true, true); }, 2500);
     }
   }
-  fetchDetail(word, lang, wdRenderEnriched);
+  fetchDetail(word, lang, wdRenderEnriched, false, false);
   return ov;
 }
 /* 学习中新词首次出现的自动详解：每个词只自动弹一次（按当前账号 localStorage 记录） */

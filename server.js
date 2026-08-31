@@ -20,7 +20,7 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
-const APP_VERSION = '1.4.5';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.6';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -687,6 +687,38 @@ function parseYoudaoSuggest(d, word) {
   }
   return out;
 }
+/* 有道 suggest（英文）→ 统一结构；作为 jsonapi/dictapi 都失败时的兜底，只补中文释义（无音标）。
+   响应示例：{"data":{"entries":[{"entry":"sound","explain":"n. 声音，声响；听力范围，听距；乐音；..."}]}}
+   注意：explain 里只有第一个义项段带词性，后续同词性段省略词性，需要继承 lastPos。 */
+function parseYoudaoSuggestEn(d, word) {
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [] };
+  const target = String(word || '').trim().toLowerCase();
+  const ents = ((d || {}).data || {}).entries || [];
+  for (const e of ents) {
+    if (String(e.entry || '').trim().toLowerCase() !== target) continue;
+    const ex = cleanText(e.explain).replace(/~/g, String(word || ''));
+    if (!ex) continue;
+    let lastPos = '';
+    for (const seg of ex.split(/;|；/)) {
+      if (out.senses.length >= 4) break;
+      const line = cleanText(seg);
+      if (!line || !/[\u4e00-\u9fff]/.test(line)) continue;
+      const m = line.match(/^([a-zA-Z]+\.?)\s*(.*)$/);
+      let pos = lastPos, rest = line;
+      if (m && m[1] && m[2] && /[\u4e00-\u9fff]/.test(m[2])) {
+        pos = m[1];
+        rest = m[2].replace(/^\d+[.、]\s*/, '').trim();
+        lastPos = pos;
+      }
+      if (!rest) continue;
+      const d2 = shortenDef(rest, out.senses.length === 0 ? 3 : 2).slice(0, 160);
+      if (!d2 || isDupDef(d2, out.senses.map((s) => s.def))) continue;
+      out.senses.push({ pos: pos, def: d2 });
+    }
+    break;
+  }
+  return out;
+}
 /* 有道 jsonapi(le=es) 的 multle 字典 → 统一结构（西语主力源：完整词性+义项）
    结构：d.multle.word[0].trs[] = [{tr:[{l:{i:["adj.\\n"]}}]}, {tr:[{l:{i:["1.极坏的…"]}}]}, …]
    词性行（adj. / m., / f.）与义项行（1.狗，犬）交替出现，~ 是单词代称。 */
@@ -887,11 +919,32 @@ function cacheWordDetail(key, out) {
 const dictInFlight = new Map(); // key -> [promise]
 let dictConcurrent = 0;
 const DICT_MAX_CONCURRENT = 4;
+/* 启动一次外部词典请求，并在 inFlight map 中复用，避免同一个词并发重复查询。 */
+function startFetchWordDetail(word, lang) {
+  const key = dictKey(word, lang);
+  if (dictInFlight.has(key)) return dictInFlight.get(key);
+  const p = _fetchWordDetail(word, key, lang);
+  dictInFlight.set(key, p);
+  p.then(() => { dictInFlight.delete(key); saveDictShard(word, lang); }, () => dictInFlight.delete(key));
+  return p;
+}
+/* 同步等在线富化（带超时）。详情弹窗首屏用：避免用户先看到不完整的词书义、再靠轮询补。 */
+async function enrichWithTimeout(word, lang, ms) {
+  try {
+    return await Promise.race([
+      startFetchWordDetail(word, lang),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms || 5000)),
+    ]);
+  } catch (e) {
+    return null;
+  }
+}
 /* 查询顺序（关键：前 3 步都不依赖实时联网，保证「不延迟、不失败」）：
    1) 内存富化缓存      2) Upstash 云端分片富化缓存（短超时，超时就跳过）
    3) 离线词书索引（1.4 万词，零网络即时返回「词性+释义」，音标后台慢慢补）
-   4) 都不命中（自定义词书等）才走外部网络，失败也只是没有音标，不会报错 */
-async function getWordDetail(word, lang) {
+   4) 都不命中（自定义词书里的词）才走外部网络，失败也只是没有音标，不会报错
+   注：wait=true 时，对词书词会同步等最多约 5s 在线富化，用于详情弹窗首屏。 */
+async function getWordDetail(word, lang, wait) {
   const key = dictKey(word, lang);
   const w = String(word || '').trim();
   if (!w) return null;
@@ -909,17 +962,18 @@ async function getWordDetail(word, lang) {
   // 3) 离线词书索引：即时返回，音标/例句交给后台富化
   const bk = bookIndex.get(key);
   if (bk && (bk.senses || []).length) {
+    // 详情弹窗首屏：等一会儿在线富化，避免先显示不完整词书义
+    if (wait) {
+      const enriched = await enrichWithTimeout(w, lang, 5000);
+      if (enriched) return enriched;
+    }
     scheduleEnrich(w, lang);
     return bk;
   }
 
   // 4) 外部网络（自定义词书里的词）
   if (hit && typeof hit === 'object' && hit.neg && Date.now() - (hit.at || 0) < NEG_TTL) return null;
-  if (dictInFlight.has(key)) return dictInFlight.get(key); // 正在查：复用同一个 Promise
-  const p = _fetchWordDetail(w, key, lang);
-  dictInFlight.set(key, p);
-  p.then(() => { dictInFlight.delete(key); saveDictShard(w, lang); }, () => dictInFlight.delete(key));
-  return p;
+  return startFetchWordDetail(w, lang);
 }
 async function _fetchWordDetail(w, key, lang) {
   const isEs = lang === 'es';
@@ -976,6 +1030,17 @@ async function _fetchWordDetail(w, key, lang) {
           return cacheWordDetail(key, out);
         }
       } catch (e) { console.log('[dict] dictapi fallback failed for', w, '-', e.message); }
+      // 3) 最后兜底：有道 suggest（英文）。这个接口在部分网络环境下比 jsonapi 更稳，
+      //    能给出带词性的中文释义，但没有音标/例句；和词书义合并后至少保证「声音」这类日常义不丢。
+      try {
+        const d4 = await fetchJSON('https://dict.youdao.com/suggest?num=5&ver=3.0&doctype=json&le=en&q=' + q, 5000);
+        const p4 = parseYoudaoSuggestEn(d4, w);
+        if (p4.senses.length) {
+          console.log('[dict] youdao-suggest fallback used for', w);
+          const out = buildDetail(w, 'en', p4, 'youdao-suggest');
+          return cacheWordDetail(key, out);
+        }
+      } catch (e) { console.log('[dict] youdao-suggest fallback failed for', w, '-', e.message); }
     }
   } catch (e) { /* 网络异常：返回 null，前端降级为只显示词书释义 */ } finally {
     dictConcurrent -= 1; // 无论成败都要释放并发名额
@@ -2402,7 +2467,8 @@ const server = http.createServer(async (req, res) => {
       const w = String(u.searchParams.get('w') || '').trim().slice(0, 64);
       if (!w) return send(res, 400, { error: '缺少单词' });
       const lang = u.searchParams.get('lang') === 'es' ? 'es' : 'en';
-      const d = await getWordDetail(w, lang);
+      const wait = u.searchParams.get('wait') === '1'; // 详情弹窗首屏：等在线富化
+      const d = await getWordDetail(w, lang, wait);
       if (!d) return send(res, 200, { ok: false, word: w, lang: lang });
       return send(res, 200, Object.assign({ ok: true }, d));
     }

@@ -2282,8 +2282,27 @@ function openWordDetail(word, lang, opts){
     }
     var html = '';
     if (d.exams && d.exams.length) html += '<div style="text-align:center;margin-top:6px">' + d.exams.map(function(x){ return '<span class="wd-exam">' + wdEscape(x) + '</span>'; }).join('') + '</div>';
-    if (d.senses.length) {
-      html += '<div class="wd-sec"><h4>释 义</h4>' + d.senses.map(function(s){
+    /* 过滤：详情里「词书释义」已单独展示 opts.meaning，释义列表里若只是它的近义重复（同一意思出现两次），
+       就跳过，避免弹窗刷出一堆近义项。仅当 book 释义存在时才过滤，且只隐藏「被 book 释义完全覆盖 / 等同」的义项，
+       保留真正补充新信息的义项（如 book=银行 而义项=银行；河岸 仍保留）。 */
+    var bookDef = (opts && opts.meaning) ? String(opts.meaning).replace(/^[a-zA-Z]+[.&]?\s*/, '').replace(/[\s，。、；：""''（）【】()\-—\/·《》]/g, '') : '';
+    var showSenses = d.senses.filter(function (s) {
+      if (!bookDef) return true;
+      var sd = String(s.def || '').replace(/^[a-zA-Z]+[.&]?\s*/, '').replace(/[\s，。、；：""''（）【】()\-—\/·《》]/g, '');
+      if (!sd) return true;
+      if (sd === bookDef) return false;                       // 完全等同
+      if (bookDef.indexOf(sd) >= 0) return false;             // 义项被 book 释义完整覆盖 → 重复
+      // 字符集合 Jaccard ≥ 0.8 视为同一义项的不同措辞（抗词序），阈值较高避免误删「银行；河岸」类补充义项
+      var sa = {}, sb = {}, inter = 0, ua = 0, ub = 0, k;
+      for (var ci = 0; ci < sd.length; ci++) sa[sd[ci]] = 1;
+      for (var cj = 0; cj < bookDef.length; cj++) sb[bookDef[cj]] = 1;
+      for (k in sa) { ua++; if (sb[k]) inter++; }
+      for (k in sb) ub++;
+      if (ua && inter / (ua + ub) >= 0.8) return false;
+      return true;
+    });
+    if (showSenses.length) {
+      html += '<div class="wd-sec"><h4>释 义</h4>' + showSenses.map(function (s) {
         return '<div class="wd-sense"><span class="pos">' + wdEscape(s.pos || '词') + '</span><span class="df">' + wdEscape(s.def) + '</span>' +
           (s.en ? '<span class="ex">例：' + wdEscape(s.en) + '</span>' : '') + '</div>';
       }).join('') + '</div>';

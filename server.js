@@ -20,11 +20,16 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
-const APP_VERSION = '1.4.2';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.3';                        // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
-/* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组 */
-const POS_RE = /^(n|v|adj|adv|prep|conj|pron|num|int|art|aux|vt|vi|abbr)\.?\s*/i;
-const POS_ONLY = /^\s*(n|v|adj|adv|prep|conj|pron|num|int|art|aux|vt|vi|abbr)\.?\s*$/i;
+/* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
+ * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
+ * 旧正则只认单个词性（v. / n.），导致「vi&n 拖欠，违约」被拆成 pos=空、def="vi&n 拖欠，违约"，
+ * 既污染详情弹窗展示，又让跨词书的近义去重失效——default 因此刷出两条近义（已报 bug）。
+ * 这里把 & 组合整体识别为词性前缀。 */
+const POS_BASE = 'n|v|adj|adv|prep|conj|pron|num|int|art|aux|vt|vi|abbr';
+const POS_RE = new RegExp('^(' + POS_BASE + ')\\.?(\\s*&\\s*(' + POS_BASE + ')\\.?)*[\\s]+', 'i');
+const POS_ONLY = new RegExp('^\\s*(' + POS_BASE + ')\\.?(\\s*&\\s*(' + POS_BASE + ')\\.?)*\\s*$', 'i');
 /* 反复剥离开头的词性前缀（处理 "n n." / "aux v" 这类脏数据，避免残留 "n." 混入选项） */
 function stripPos(t) {
   let s = t;
@@ -468,8 +473,12 @@ const bookIndex = new Map(); // 'en:word' -> { word, lang, senses:[{pos,def}], s
 function parseBookMeaning(s) {
   const t = String(s == null ? '' : s).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   if (!t) return { pos: '', def: '' };
-  const m = t.match(/^([a-zA-Z]+\.?)\s+(.+)$/);
-  if (m) return { pos: m[1].replace(/\.$/, ''), def: m[2] };
+  const m = t.match(POS_RE);
+  if (m) {
+    const pos = m[0].replace(/[\s.]+$/g, '').toLowerCase(); // 去掉结尾的空格/点
+    const def = t.slice(m[0].length).trim();
+    if (def) return { pos: pos, def: def };
+  }
   return { pos: '', def: t };
 }
 function buildBookIndex() {

@@ -90,6 +90,31 @@ async function main() {
   console.log('    词汇本:', books.json.books.map((b) => `${b.name}(${b.count})`).join(', '));
   if (books.json.books.length < 6) throw new Error('词库数量不对（应至少 6 本，实际 ' + books.json.books.length + '）');
 
+  console.log('[1b] 校验默认对战词书为托福(toefl)，且题库已剔除简单词...');
+  if (books.json.defaultPkBook !== 'toefl') throw new Error('默认对战词书应为 toefl，实际: ' + books.json.defaultPkBook);
+  // 本地读取 books.json，构造「基础简单词集合」（与服务器 FOUNDATION_BOOK_IDS 保持一致）
+  const fs = require('fs');
+  const path = require('path');
+  const allBooks = JSON.parse(fs.readFileSync(path.join(__dirname, 'public', 'data', 'books.json'), 'utf8'));
+  const FOUNDATION = ['zhongkao', 'gaokao', 'cet4', 'cet4-core'];
+  const simpleSet = new Set();
+  for (const fid of FOUNDATION) {
+    const b = allBooks.find((x) => x.id === fid);
+    if (b) for (const it of b.words) if (Array.isArray(it) && typeof it[0] === 'string') simpleSet.add(it[0].trim().toLowerCase());
+  }
+  // 默认词书（bookId 留空）出题，应回落到 toefl，且不应出现任何「基础简单词」
+  const defQ = await req('GET', '/api/diag/questions?bookId=&count=30');
+  if (defQ.status !== 200) throw new Error('/api/diag/questions 失败: ' + JSON.stringify(defQ.json));
+  if (defQ.json.bookId !== 'toefl') throw new Error('默认出题词书应为 toefl，实际: ' + defQ.json.bookId);
+  const leaked = defQ.json.questions.filter((q) => simpleSet.has(String(q.word || '').trim().toLowerCase()));
+  if (leaked.length) throw new Error('默认题库混入了 ' + leaked.length + ' 个简单词，例如: ' + leaked.slice(0, 5).map((q) => q.word).join(', '));
+  console.log('    默认(空 bookId) =>', defQ.json.bookName, '| 抽样', defQ.json.count, '题，无简单词 ✅');
+  // 基础词书(cet4)本身不被过滤：应仍包含大量基础词，且能正常出题
+  const cet4Q = await req('GET', '/api/diag/questions?bookId=cet4&count=30');
+  if (cet4Q.status !== 200) throw new Error('cet4 出题失败');
+  if (cet4Q.json.questions.length === 0) throw new Error('cet4 出题为空，过滤逻辑有误');
+  console.log('    基础词书 cet4 出题', cet4Q.json.questions.length, '题（不过滤）✅');
+
   console.log('[2] 房主创建房间（四级·听力模式·5题特殊?默认10）...');
   const created = await req('POST', '/api/create', { name: '小明', bookId: 'cet4', mode: 'listen', count: 10 });
   if (created.status !== 200) throw new Error('创建失败: ' + JSON.stringify(created.json));

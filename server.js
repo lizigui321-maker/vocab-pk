@@ -22,7 +22,7 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
-const APP_VERSION = '1.4.10';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.11';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -83,6 +83,19 @@ for (const b of BOOKS) {
     if (!b._byPos.has(w.pos)) b._byPos.set(w.pos, []);
     b._byPos.get(w.pos).push(w);
   }
+}
+
+/* 单词对战默认词书 & 「简单词」剔除集合
+ * - DEFAULT_PK_BOOK：对战默认词书改为托福（toefl，9212 词），而非 toefl-core（2562）。
+ * - FOUNDATION_BOOK_IDS：一个 4000+ 词汇量玩家早已掌握的入门词书（中考/高考/四级/四级核心）。
+ *   生成【非基础词书】的 PK 题库时，剔除这些「简单词」，让题目聚焦在更难、更值得练的词上；
+ *   基础词书本身（用户明确选了入门词书）则保留全部词，照常出题。 */
+const DEFAULT_PK_BOOK = 'toefl';
+const FOUNDATION_BOOK_IDS = ['zhongkao', 'gaokao', 'cet4', 'cet4-core'];
+const KNOWN_SIMPLE_WORDS = new Set();
+for (const fid of FOUNDATION_BOOK_IDS) {
+  const fb = BOOKS.find((x) => x.id === fid);
+  if (fb) for (const w of fb._words) KNOWN_SIMPLE_WORDS.add(String(w.word || '').toLowerCase());
 }
 
 /* ---------------- 持久化存储（生词本 / 词汇量排行） ---------------- */
@@ -1509,17 +1522,31 @@ function lanIPs() {
 
 /* ---------------- 房间与游戏逻辑 ---------------- */
 function genQuestions(bookId, count) {
-  const book = BOOKS.find((b) => b.id === bookId) || BOOKS[0];
-  const pool = shuffle(book._words).slice(0, Math.min(count, book._words.length));
+  const book = BOOKS.find((b) => b.id === bookId)
+    || BOOKS.find((b) => b.id === DEFAULT_PK_BOOK)
+    || BOOKS[0];
+  // 默认玩家按 4000+ 词汇量处理：非基础词书里剔除「中考/高考/四级/四级核心」这些已掌握的简单词，
+  // 让 PK 题库聚焦在更难、更值得练的词上；基础词书本身则保留全部词（用户明确选了入门词书就照给）。
+  const isFoundation = FOUNDATION_BOOK_IDS.includes(book.id);
+  const words = isFoundation
+    ? book._words
+    : book._words.filter((w) => !KNOWN_SIMPLE_WORDS.has(String(w.word || '').toLowerCase()));
+  const byPos = new Map();
+  for (const w of words) {
+    if (!byPos.has(w.pos)) byPos.set(w.pos, []);
+    byPos.get(w.pos).push(w);
+  }
+  const pool = shuffle(words).slice(0, Math.min(count, words.length));
   return pool.map((w) => {
-    // 干扰项优先取同词性词条（无法按词性排除，迷惑性更强）；不足 3 个再从全书补
+    // 干扰项从「过滤后的词表」里取，避免把已剔除的简单词当干扰项又放出来；
+    // 优先取同词性词条（无法按词性排除，迷惑性更强）；不足 3 个再从全书补
     let candidates = [];
-    if (w.pos && book._byPos.has(w.pos)) {
-      candidates = book._byPos.get(w.pos).filter((x) => x.word !== w.word && x.meaning !== w.meaning);
+    if (w.pos && byPos.has(w.pos)) {
+      candidates = byPos.get(w.pos).filter((x) => x.word !== w.word && x.meaning !== w.meaning);
     }
     if (candidates.length < 3) {
       candidates = candidates.concat(
-        book._words.filter((x) => x.word !== w.word && x.meaning !== w.meaning)
+        words.filter((x) => x.word !== w.word && x.meaning !== w.meaning)
       );
     }
     const seen = new Set([w.meaning]);
@@ -2101,7 +2128,7 @@ const server = http.createServer(async (req, res) => {
   const p = u.pathname;
   try {
     if (req.method === 'GET' && p === '/api/books') {
-      return send(res, 200, { books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })) });
+      return send(res, 200, { books: BOOKS.map((b) => ({ id: b.id, name: b.name, count: b.words.length, lang: b.lang })), defaultPkBook: DEFAULT_PK_BOOK });
     }
     if (req.method === 'GET' && p === '/api/info') {
       let publicUrl = '';
@@ -2132,6 +2159,17 @@ const server = http.createServer(async (req, res) => {
         leaseOwner: leaseOwner,
         serverTime: new Date().toISOString(),
       });
+    }
+    /* 只读诊断端点：返回某词书生成的 PK 题目样例（复用 genQuestions 真实逻辑）。
+       仅暴露公开词书里的「词 + 释义 + 选项」（books.json 本就是公开静态文件），不泄露任何账号数据。
+       用途：验证「默认词书 / 简单词剔除」等出题规则是否生效，无需开整局对战。 */
+    if (req.method === 'GET' && p === '/api/diag/questions') {
+      const q = u.searchParams;
+      const bookId = q.get('bookId') || '';
+      const count = [10, 20, 30].includes(Number(q.get('count'))) ? Number(q.get('count')) : 30;
+      const qs = genQuestions(bookId, count);
+      const book = BOOKS.find((b) => b.id === bookId) || BOOKS.find((b) => b.id === DEFAULT_PK_BOOK) || BOOKS[0];
+      return send(res, 200, { bookId: book.id, bookName: book.name, requested: bookId, count: qs.length, questions: qs });
     }
     // ---------------- 账号系统接口 ----------------
     if (req.method === 'POST' && p === '/api/register') {
@@ -2407,7 +2445,9 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const account = authUser(tokenOf(req, u, b));
       if (!account) return send(res, 401, { error: '请先登录' });
-      const bookId = BOOKS.some((x) => x.id === b.bookId) ? b.bookId : BOOKS[0].id;
+      const bookId = BOOKS.some((x) => x.id === b.bookId)
+        ? b.bookId
+        : (BOOKS.some((x) => x.id === DEFAULT_PK_BOOK) ? DEFAULT_PK_BOOK : BOOKS[0].id);
       const mode = b.mode === 'listen' ? 'listen' : 'word';
       const count = [10, 20, 30].includes(Number(b.count)) ? Number(b.count) : 10;
       const room = newRoom({ bookId, mode, count });

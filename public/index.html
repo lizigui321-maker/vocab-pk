@@ -616,6 +616,7 @@ app.addEventListener('pointerdown', onAppPointerDown);
 
 /* ---------- 全局状态 ---------- */
 var BOOKS = [];
+var DEFAULT_PK_BOOK_ID = 'toefl'; // 单词对战默认词书（与服务器 DEFAULT_PK_BOOK 同步，启动时会从 /api/books 覆盖）
 var INFO = { ips: [], port: 3000 };
 var token = localStorage.getItem('vpk_token') || '';   // 登录令牌
 var account = null;     // {username, name} 当前登录账号
@@ -1369,7 +1370,7 @@ function renderSettings(){
 
 /* ---------- 单词对战入口（从首页「⚡ 单词对战」进入） ---------- */
 function renderPk(){
-  var bookOpts = bookOptionsHTML(null);
+  var bookOpts = bookOptionsHTML(DEFAULT_PK_BOOK_ID);
   var ipHtml = INFO.ips && INFO.ips.length
     ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
     : '<code>http://本机IP:' + INFO.port + '</code>';
@@ -3409,7 +3410,7 @@ function boot(){
         BOOKS = books.map(function(b){ return { id: b.id, name: b.name, count: (b.words || []).length, lang: b.lang || 'en' }; });
         return;
       }
-      return withTimeout(api('/api/books'), 12000, null).then(function(d){ if (d && d.books) BOOKS = d.books; }).catch(function(){});
+      return withTimeout(api('/api/books'), 12000, null).then(function(d){ if (d && d.books) BOOKS = d.books; if (d && d.defaultPkBook) DEFAULT_PK_BOOK_ID = d.defaultPkBook; }).catch(function(){});
     })
     .catch(function(){})
     .then(function(){

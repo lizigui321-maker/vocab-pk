@@ -307,6 +307,7 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .wd-sec h4{font-size:12px;color:var(--sub);font-weight:700;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
 .wd-sec h4::after{content:'';flex:1;height:1px;background:var(--line)}
 .wd-sense{background:var(--bg);border-radius:14px;padding:11px 14px;margin-bottom:9px;line-height:1.6;border:1px solid transparent}
+.wd-etym{background:var(--bg);border-radius:14px;padding:11px 14px;line-height:1.7;font-size:14px;color:var(--text-2);border:1px solid transparent}
 .wd-sense:first-child{border-color:rgba(79,70,229,.22);background:rgba(79,70,229,.05)}
 .wd-sense .pos{display:inline-block;font-size:11.5px;color:#fff;background:var(--grad);border-radius:7px;padding:2px 9px;margin-right:9px;font-weight:700;vertical-align:2px}
 .wd-sense .df{font-size:15px;color:var(--ink);font-weight:600}
@@ -2576,6 +2577,8 @@ function openWordDetail(word, lang, opts){
           (s.en ? '<span class="ex">例：' + wdEscape(s.en) + '</span>' : '') + '</div>';
       }).join('') + '</div>';
     }
+    /* 词根/词源：仅当在线词典返回真实 origin 时才展示；缺失则整段不渲染（绝不杜撰） */
+    if (d.etym) html += '<div class="wd-sec"><h4>词根词源</h4><div class="wd-etym">' + wdEscape(d.etym) + '</div></div>';
     if (d.phrases && d.phrases.length) {
       html += '<div class="wd-sec"><h4>常用搭配</h4>' + d.phrases.map(function(p){
         return '<div class="wd-ph"><b>' + wdEscape(p.ph) + '</b>' + (p.tr ? ' <span class="t">' + wdEscape(p.tr) + '</span>' : '') + '</div>';

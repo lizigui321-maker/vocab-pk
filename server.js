@@ -24,7 +24,7 @@ const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
 const STALE_PLAYER_TTL = Number(process.env.STALE_PLAYER_TTL) || 45 * 1000; // 掉线超过 45 秒的玩家自动移出房间（清僵尸，避免卡住开局）
 const ROOM_SWEEP_MS = Number(process.env.ROOM_SWEEP_MS) || 15000;           // 房间巡检间隔（清僵尸 / 删空房 / 转移房主）
-const APP_VERSION = '1.4.16';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.17';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -856,9 +856,11 @@ function isDupDef(newDef, existing) {
   return false;
 }
 function parseDictApi(d, word) {
-  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [] };
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [], etym: '' };
   if (!Array.isArray(d) || !d[0]) return null;
   const e = d[0];
+  // 词根/词源：取自 dictionaryapi.dev 的 origin 字段（真实词源）；缺失则留空，绝不杜撰
+  if (e.origin) out.etym = cleanText(e.origin).slice(0, 400);
   if (e.phonetic) out.ipa = cleanText(e.phonetic);
   for (const ph of (e.phonetics || [])) {
     if (!out.ipa && ph.text) out.ipa = cleanText(ph.text);
@@ -896,6 +898,7 @@ function buildDetail(word, lang, parsed, src) {
     phrases: parsed.phrases || [],
     examples: parsed.examples || [],
     exams: parsed.exams || [],
+    etym: parsed.etym || '',
     src: src, at: Date.now(),
     v: DICT_VER,   // 结构版本：供启动时淘汰旧规则生成的缓存（详见 DICT_VER 注释）
   };
@@ -940,6 +943,7 @@ function mergeBookOnline(book, online) {
     phrases: (online.phrases && online.phrases.length) ? online.phrases : (book.phrases || []),
     examples: (online.examples && online.examples.length) ? online.examples : (book.examples || []),
     exams: (online.exams && online.exams.length) ? online.exams : (book.exams || []),
+    etym: (online.etym || ''),
     src: (online.src ? (online.src + '+book') : (book.src || 'book')),
     at: Date.now(),
     v: DICT_VER,
@@ -1050,14 +1054,22 @@ async function _fetchWordDetail(w, key, lang) {
         p = parseYoudao(d, w);
       } catch (e) { console.log('[dict] youdao failed for', w, '-', e.message); }
       if (p && p.senses.length) {
-        // 有道没给音标/音频时，用 dictionaryapi.dev 补齐
-        if (!p.ipaUs && !p.ipa) {
-          try {
-            const d2 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
-            const p2 = parseDictApi(d2, w);
-            if (p2) { if (p2.ipa) p.ipa = p2.ipa; if (p2.audio) p.audio = p2.audio; }
-          } catch (e) { console.log('[dict] dictapi(ipa) failed for', w, '-', e.message); }
-        }
+        // 用 dictionaryapi.dev 补齐：① 词根/词源(origin) ② 有道没给的音标/音频
+        let etym = '';
+        try {
+          const d2 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
+          const arr = Array.isArray(d2) ? d2 : [];
+          const e0 = arr[0] || {};
+          if (e0.origin) etym = cleanText(e0.origin).slice(0, 400);
+          if (!p.ipaUs && !p.ipa) {
+            if (e0.phonetic) p.ipa = cleanText(e0.phonetic);
+            for (const ph of (e0.phonetics || [])) {
+              if (!p.ipa && ph.text) p.ipa = cleanText(ph.text);
+              if (!p.audio && ph.audio) p.audio = String(ph.audio);
+            }
+          }
+        } catch (e) { console.log('[dict] dictapi(etym/ipa) failed for', w, '-', e.message); }
+        p.etym = etym;
         const out = buildDetail(w, 'en', p, 'youdao');
         return cacheWordDetail(key, out);
       }

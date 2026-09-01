@@ -190,5 +190,16 @@ ov = mod.openWordDetail('grape', 'en', { meaning: '葡萄' });
 ov.querySelector('#wdClose').onclick();
 ok(ov.classList.contains('wd-out') && ov.querySelector('.wd-sheet').classList.contains('wd-out'), '关闭时附加 .wd-out 淡出动画类');
 
+console.log('== 词根词源区块（来自真实词源，无则不渲染） ==');
+MOCK.etym = 'tele- “at a distance” + -phone “sound”';
+let ovE = mod.openWordDetail('telephone', 'en', { meaning: '电话' });
+let bodyE = ovE.querySelector('#wdBody');
+ok(bodyE.innerHTML.indexOf('词根词源') >= 0, '有词源时渲染「词根词源」区块');
+ok(bodyE.innerHTML.indexOf('at a distance') >= 0, '词源正文正确渲染: ' + (bodyE.innerHTML.match(/wd-etym">([^<]*)</) || [, ''])[1]);
+MOCK.etym = '';
+let ovN = mod.openWordDetail('nomatch', 'en', { meaning: '无' });
+let bodyN = ovN.querySelector('#wdBody');
+ok(bodyN.innerHTML.indexOf('词根词源') < 0, '无词源时不渲染「词根词源」区块（绝不杜撰）');
+
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

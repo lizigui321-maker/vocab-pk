@@ -24,7 +24,7 @@ const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
 const STALE_PLAYER_TTL = Number(process.env.STALE_PLAYER_TTL) || 45 * 1000; // 掉线超过 45 秒的玩家自动移出房间（清僵尸，避免卡住开局）
 const ROOM_SWEEP_MS = Number(process.env.ROOM_SWEEP_MS) || 15000;           // 房间巡检间隔（清僵尸 / 删空房 / 转移房主）
-const APP_VERSION = '1.4.17';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.18';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -477,7 +477,7 @@ const DICT_MAX = 3000;                 // 缓存上限，超出后按时间淘�
    否则磁盘里旧版缓存会被原样读回，新的去重规则根本不会生效，
    用户看到的是「明明修了却还是一堆近义项」（这个坑踩过一次）。
    启动时会自动丢弃版本不符的旧条目，让它们按新规则重新生成。 */
-const DICT_VER = 5; // 5: books.json 再修正 9 处释义互换（interact/enthusiasm/unconscious/offer/lock/as/comprise/stereotype/conversely 错用他词释义），淘汰旧缓存以重建
+const DICT_VER = 6; // 6: 详解加入「词根词源」（取自有道 etym 块），淘汰旧缓存以重建 —— 旧条目没有 etym 字段，不重建就永远看不到词根
 let dictCache = loadJSON(DICT_FILE, {});
 if (!dictCache || typeof dictCache !== 'object' || Array.isArray(dictCache)) dictCache = {};
 /* 淘汰旧版本缓存条目：只针对磁盘里读出来的富化结果（带 v 字段的才是本版本写的）。
@@ -650,7 +650,7 @@ function shortenDef(def, max) {
 }
 /* 有道 jsonapi → 统一结构（英文主力源） */
 function parseYoudao(d, word) {
-  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [] };
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [], etym: '' };
   const pushSense = (pos, def) => {
     if (!def) return;
     if (out.senses.length >= 4) return;
@@ -698,6 +698,16 @@ function parseYoudao(d, word) {
     if (out.exams.length >= 4) break;
     const n = cleanText(e);
     if (n) out.exams.push(n);
+  }
+  /* 词根/词源：有道 jsonapi 的 etym 块（实测真实可用，dictionaryapi.dev 的 origin 基本全是空的）。
+     优先中文（zh，本身即词根拆解，如「由bios（生命）和-logy（学科）组成」），其次英文（en，来源 wiktionary）。
+     一律截断到 300 字；取不到就留空，绝不杜撰。 */
+  const etyms = (d.etym && d.etym.etyms) || null;
+  if (etyms) {
+    const arr = etyms.zh || etyms.en;
+    if (Array.isArray(arr) && arr[0] && arr[0].value) {
+      out.etym = cleanText(String(arr[0].value)).replace(/[\u200e\u200f]/g, '').slice(0, 300);
+    }
   }
   return out;
 }
@@ -1054,22 +1064,15 @@ async function _fetchWordDetail(w, key, lang) {
         p = parseYoudao(d, w);
       } catch (e) { console.log('[dict] youdao failed for', w, '-', e.message); }
       if (p && p.senses.length) {
-        // 用 dictionaryapi.dev 补齐：① 词根/词源(origin) ② 有道没给的音标/音频
-        let etym = '';
-        try {
-          const d2 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
-          const arr = Array.isArray(d2) ? d2 : [];
-          const e0 = arr[0] || {};
-          if (e0.origin) etym = cleanText(e0.origin).slice(0, 400);
-          if (!p.ipaUs && !p.ipa) {
-            if (e0.phonetic) p.ipa = cleanText(e0.phonetic);
-            for (const ph of (e0.phonetics || [])) {
-              if (!p.ipa && ph.text) p.ipa = cleanText(ph.text);
-              if (!p.audio && ph.audio) p.audio = String(ph.audio);
-            }
-          }
-        } catch (e) { console.log('[dict] dictapi(etym/ipa) failed for', w, '-', e.message); }
-        p.etym = etym;
+        // 词根/词源由 parseYoudao 从有道 etym 块直接取（见 parseYoudao 注释）。
+        // 这里只在有道没给音标/音频时，才用 dictionaryapi.dev 补齐（恢复原逻辑，避免多余的外部请求）。
+        if (!p.ipaUs && !p.ipa) {
+          try {
+            const d2 = await fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 5000);
+            const p2 = parseDictApi(d2, w);
+            if (p2) { if (p2.ipa) p.ipa = p2.ipa; if (p2.audio) p.audio = p2.audio; }
+          } catch (e) { console.log('[dict] dictapi(ipa) failed for', w, '-', e.message); }
+        }
         const out = buildDetail(w, 'en', p, 'youdao');
         return cacheWordDetail(key, out);
       }

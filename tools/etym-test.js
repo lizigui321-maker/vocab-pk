@@ -19,16 +19,20 @@ function extractFn(name) {
 }
 
 const code = [
-  'const DICT_VER = 5;',
+  'const DICT_VER = 6;',
   extractFn('cleanText'),
+  extractFn('iText'),
+  extractFn('shortenDef'),
   extractFn('normDef'),
+  extractFn('primarySeg'),   // isDupDef 依赖：多义项时才走到，缺了会在真实多义词上抛 ReferenceError
   extractFn('isDupDef'),
+  extractFn('parseYoudao'),
   extractFn('parseDictApi'),
   extractFn('buildDetail'),
   extractFn('mergeBookOnline'),
-  'return { parseDictApi, buildDetail, mergeBookOnline };',
+  'return { parseYoudao, parseDictApi, buildDetail, mergeBookOnline };',
 ].join('\n');
-const { parseDictApi, buildDetail, mergeBookOnline } = new Function(code)();
+const { parseYoudao, parseDictApi, buildDetail, mergeBookOnline } = new Function(code)();
 
 let pass = 0, fail = 0;
 function ok(c, m) { if (c) pass++; else { fail++; console.log('  ✗ ' + m); } }
@@ -59,6 +63,46 @@ ok(b && b.etym === '', '无 origin 时 etym 为空串（不乱编）');
 
 const c = parseDictApi(longOrigin, 'x');
 ok(c && c.etym.length <= 400, '超长 origin 截断到 ≤400 字符，实际=' + (c && c.etym.length));
+
+/* ---- 有道 jsonapi 的 etym 块：本功能真正的词根来源（dictionaryapi.dev 的 origin 实测基本为空） ---- */
+function youdaoMock(etymBlock) {
+  return {
+    ec: { word: [{ trs: [{ tr: [{ l: { i: 'n. 电话' } }] }] }] },
+    etym: etymBlock,
+  };
+}
+const ZH = '这个单词来源于希腊语，由tele-（远的）和-phone（声音）组成，表示“电话”。';
+const EN = 'From tele- + -phone. From Ancient Greek τῆλε (têle, "afar").';
+
+console.log('== parseYoudao 从有道 etym 块提取词根 ==');
+const y1 = parseYoudao(youdaoMock({ etyms: { zh: [{ source: '有道', value: ZH }] } }), 'telephone');
+ok(y1 && y1.etym && y1.etym.indexOf('tele-') >= 0, '有道中文词根被提取: ' + (y1 && y1.etym));
+
+const y2 = parseYoudao(youdaoMock({ etyms: { en: [{ source: 'wiktionary', value: EN }] } }), 'telephone');
+ok(y2 && y2.etym && y2.etym.indexOf('From tele-') >= 0, '只有英文词源时回退取英文: ' + (y2 && y2.etym));
+
+const y3 = parseYoudao(youdaoMock({ etyms: { zh: [{ value: ZH }], en: [{ value: EN }] } }), 'telephone');
+ok(y3 && y3.etym.indexOf('tele-') >= 0 && y3.etym.indexOf('From tele-') < 0, '中英文都有时优先中文');
+
+const y4 = parseYoudao(youdaoMock(undefined), 'telephone');
+ok(y4 && y4.etym === '', '有道未返回 etym 时留空（绝不杜撰）');
+
+const y5 = parseYoudao(youdaoMock({ etyms: { zh: [{ value: 'x'.repeat(600) }] } }), 'telephone');
+ok(y5 && y5.etym.length <= 300, '超长词源截断到 ≤300 字，实际=' + (y5 && y5.etym.length));
+
+const y6 = parseYoudao(youdaoMock({ etyms: { zh: [{ value: 'a\u200eb\u200fc' }] } }), 'telephone');
+ok(y6 && y6.etym === 'abc', '清除不可见的方向控制符: ' + (y6 && y6.etym));
+
+/* 多义项真实形态：会走到 isDupDef → primarySeg（单义项 mock 走不到，曾导致漏测） */
+/* 注意：两条义项必须语义真正不同（如 book 的「书 / 预订」）；若用「电话 / 打电话」这类近义，
+   会被 isDupDef 正确判重合并成 1 条——那是既有的正确行为，不是词根功能的 bug。 */
+const multi = {
+  ec: { word: [{ trs: [{ tr: [{ l: { i: 'n. 书；书本' } }] }, { tr: [{ l: { i: 'v. 预订；预约' } }] }] }] },
+  etym: { etyms: { zh: [{ value: ZH }] } },
+};
+const y7 = parseYoudao(multi, 'telephone');
+ok(y7 && y7.etym && y7.etym.indexOf('tele-') >= 0, '多义项单词同样能提取词根（走 isDupDef/primarySeg 分支）');
+ok(y7 && y7.senses.length >= 2, '多义项解析正常，senses=' + (y7 && y7.senses.length));
 
 console.log('== buildDetail 透传 etym ==');
 const det1 = buildDetail('telephone', 'en', { senses: a.senses, etym: a.etym }, 'dictapi');

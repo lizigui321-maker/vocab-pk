@@ -24,7 +24,7 @@ const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
 const STALE_PLAYER_TTL = Number(process.env.STALE_PLAYER_TTL) || 45 * 1000; // 掉线超过 45 秒的玩家自动移出房间（清僵尸，避免卡住开局）
 const ROOM_SWEEP_MS = Number(process.env.ROOM_SWEEP_MS) || 15000;           // 房间巡检间隔（清僵尸 / 删空房 / 转移房主）
-const APP_VERSION = '1.4.15';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.16';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -65,10 +65,17 @@ function splitMeaning(raw) {
   }
   return { pos, clean: clean || String(raw) };
 }
-/* 释义是否有效：非空且非纯词性标注（"n." / "v" / "aux" 等） */
+/* 释义是否有效：非空、且不是「纯词性标注」。
+   注意 "n n." / "v n." 这类「词性重复 / 双词性」脏数据：POS_ONLY 单独匹配不到
+   （它需要 & 连接才算组合词性），所以先循环剥掉所有前导词性前缀，若剥完仍为空或
+   仍是纯词性标注，就判为无效。否则这种垃圾会原样混进选项（如「n n.」当正确答案槽位），
+   既让用户看到无意义的选项，又让正确答案消失。 */
 function isValidMeaning(m) {
   if (!m || typeof m !== 'string') return false;
-  const s = String(m).trim();
+  let s = String(m).trim();
+  if (!s) return false;
+  let prev;
+  do { prev = s; s = stripPos(s); } while (s !== prev);
   if (!s) return false;
   if (POS_ONLY.test(s)) return false;
   return true;

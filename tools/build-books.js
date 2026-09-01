@@ -17,22 +17,58 @@ const OUT = path.join(ROOT, 'public', 'books.bundle.js');
 // 密钥：仅打包时使用；前端解码函数里用 charCode 数组还原，不写明文
 const KEY = 'VOCABPK_S3CRET_KEY';
 
-// 与 server.js 的 splitMeaning 保持逐字一致：出题用「剥离词性前缀后的纯中文释义」
-const POS_RE = /^(n|v|adj|adv|prep|conj|pron|num|int|art|aux|vt|vi|abbr)\.?\s*/i;
+// 与 server.js 的 splitMeaning 保持逐字一致：出题用「剥离词性前缀后的纯中文释义」，
+// 且支持 vi&n / n&adj 这类组合词性（旧实现只认单个词性，会把 "n&v 估计" 错切成 "&v 估计"）。
+const POS_BASE = 'n|v|adj|adv|prep|conj|pron|num|int|art|aux|vt|vi|abbr';
+const POS_RE = new RegExp('^(' + POS_BASE + ')\\.?(\\s*&\\s*(' + POS_BASE + ')\\.?)*[\\s]+', 'i');
+const POS_ONLY = new RegExp('^\\s*(' + POS_BASE + ')\\.?(\\s*&\\s*(' + POS_BASE + ')\\.?)*\\s*$', 'i');
+function stripPos(t) {
+  let s = t;
+  while (true) {
+    const mm = s.match(POS_RE);
+    if (!mm) break;
+    const rest = s.slice(mm[0].length).trim();
+    if (!rest) break;
+    s = rest;
+  }
+  return s;
+}
 function splitMeaning(raw) {
   const segs = String(raw).split(/\s*\/\s*/).map((s) => s.trim()).filter(Boolean);
   const first = segs[0] || '';
   const m = first.match(POS_RE);
   const pos = m ? m[1].toLowerCase() : '';
-  const clean = segs.map((s) => s.replace(POS_RE, '').trim()).filter(Boolean).join(' / ');
+  const cleanSegs = [];
+  for (const s of segs) {
+    const t = stripPos(s);
+    if (!t || POS_ONLY.test(t)) continue;
+    cleanSegs.push(t);
+  }
+  let clean = cleanSegs.join(' / ');
+  if (!clean) {
+    clean = String(raw).replace(new RegExp(POS_RE.source, 'gi'), '')
+      .split(' / ').map((x) => x.trim()).filter((x) => x && !POS_ONLY.test(x)).join(' / ');
+  }
   return { pos, clean: clean || String(raw) };
+}
+function isValidMeaning(m) {
+  if (!m || typeof m !== 'string') return false;
+  let s = String(m).trim();
+  if (!s) return false;
+  let prev;
+  do { prev = s; s = stripPos(s); } while (s !== prev);
+  if (!s) return false;
+  if (POS_ONLY.test(s)) return false;
+  return true;
 }
 
 const books = JSON.parse(fs.readFileSync(SRC, 'utf8')).map((b) => ({
   id: b.id,
   name: b.name,
   lang: b.lang || 'en',
-  words: b.words.map(([word, meaning]) => [word, splitMeaning(meaning).clean]),
+  words: b.words
+    .map(([word, meaning]) => [word, splitMeaning(meaning).clean])
+    .filter(([, m]) => isValidMeaning(m)),
 }));
 const json = JSON.stringify(books);
 

@@ -24,7 +24,7 @@ const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
 const STALE_PLAYER_TTL = Number(process.env.STALE_PLAYER_TTL) || 45 * 1000; // 掉线超过 45 秒的玩家自动移出房间（清僵尸，避免卡住开局）
 const ROOM_SWEEP_MS = Number(process.env.ROOM_SWEEP_MS) || 15000;           // 房间巡检间隔（清僵尸 / 删空房 / 转移房主）
-const APP_VERSION = '1.4.18';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.19';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -2938,10 +2938,19 @@ const server = http.createServer(async (req, res) => {
         const { list } = knownFilteredList(book, st.plan.vocabEstimate, knownSet);
         const lg = todayLog(st);
         const newRemaining = Math.max(0, st.plan.dailyNew - lg.new);
-        // 临时加学：在今日计划新词之外，额外追加 extraNew 个未学新词（前端可反复点击叠加）
+        /* 临时加学：在今日计划新词之外，额外追加 extraNew 个未学新词（前端可反复点击叠加）。
+           关键修复：前端把「当前队列里已有的词」通过 exclude 传回来，后端据此从候选池剔除，
+           这样反复点「加学」每次拿到的都是【下一批】未学词，而不会把同一批词重复加进来。
+           （旧逻辑每次都从 unlearnedAll 第 0 位切，导致没答完就再点会重复添加同一批词。） */
         const extraNew = Math.max(0, Math.min(200, Math.floor(Number(u.searchParams.get('extraNew')) || 0)));
-        const unlearnedAll = list.filter((w) => { const pr = st.progress[w.posKey]; return !pr || !pr.n; });
-        const news = unlearnedAll.slice(0, newRemaining + extraNew);
+        const excl = new Set(((u.searchParams.get('exclude') || '').split(',').map((x) => wordKey(x.trim())).filter(Boolean)));
+        const unlearnedAll = list.filter((w) => {
+          const pr = st.progress[w.posKey];
+          return (!pr || !pr.n) && !excl.has(wordKey(w.word));
+        });
+        const news = extraNew > 0
+          ? unlearnedAll.slice(0, extraNew)       // 加学：已用 exclude 排除队列旧词，直接取下一批
+          : unlearnedAll.slice(0, newRemaining);  // 普通每日任务：取今日计划剩余新词
         /* 每日学习只围绕【当前词书】：到期的复习词同样限定在当前词书内。
            跨词书的到期词、生词本里的词统一交给「智能复习」(mode=review) 处理，
            否则用户换了词书之后，旧词书的词还会一直混在每日任务里。 */

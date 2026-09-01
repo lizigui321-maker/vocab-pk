@@ -11,7 +11,12 @@
 const fs = require('fs');
 const path = require('path');
 const BASE = process.env.BASE_URL || 'http://localhost:3000';
-const STORE = path.join(__dirname, '..', 'store');
+// 跟随服务端 STORE_DIR：服务端用 STORE_DIR 改了数据目录（跑测试常指向临时目录），
+// 这里必须跟着走，否则会去读默认 store/ 下的 accounts.json —— 那份文件里根本没有本次测试建的 stu_ 账号，
+// 最后一步「清理测试账号」必然报 0 个。
+const STORE = process.env.STORE_DIR
+  ? path.resolve(__dirname, '..', process.env.STORE_DIR)
+  : path.join(__dirname, '..', 'store');
 let pass = 0, fail = 0;
 function ok(cond, msg) {
   if (cond) { pass++; console.log('  ✓ ' + msg); }

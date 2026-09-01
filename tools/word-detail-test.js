@@ -88,7 +88,11 @@ async function api(p, body, method) {
   try {
     const path = require('path');
     const fs = require('fs');
-    const af = path.join(__dirname, '..', 'store', 'accounts.json');
+    // 跟随服务端 STORE_DIR（默认 store/），否则清理的是另一份 accounts.json
+    const dir = process.env.STORE_DIR
+      ? path.resolve(__dirname, '..', process.env.STORE_DIR)
+      : path.join(__dirname, '..', 'store');
+    const af = path.join(dir, 'accounts.json');
     if (fs.existsSync(af)) {
       const accs = JSON.parse(fs.readFileSync(af, 'utf8'));
       let removed = 0;

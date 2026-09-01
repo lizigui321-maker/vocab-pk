@@ -43,6 +43,9 @@ global.autoDetailOnce = (w, l, o) => { detailCalls.push({ w, l, o }); autoDetail
 global.wdEscape = (s) => s == null ? '' : String(s);
 global.copyText = () => {};
 global.fetchDetail = (w, l, cb) => { cb({ ipa: '/x/', ipaUs: '/x/' }); };
+/* renderStuQuestion 会通过 fetchIPA 补音标（真实实现依赖 DETAIL_CACHE / fetchDetail）。
+   直接给结果，避免抽出来跑的 renderStuQuestion 抛 ReferenceError。 */
+global.fetchIPA = (w, l, cb) => { cb({ ipa: 'test', audio: '' }); };
 global.toast = () => {};
 global.confirm = () => true;
 global.api = () => Promise.resolve({});

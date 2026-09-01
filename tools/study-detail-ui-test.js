@@ -92,7 +92,19 @@ global.toast = () => {};
 global.confirm = () => true;
 global.api = () => Promise.resolve({});
 global.fetchDetail = (w, l, cb) => { cb({ ipa: '/x/' }); };
+/* renderStuQuestion 会通过 fetchIPA 补音标（真实实现依赖 DETAIL_CACHE / detailKey /
+   fetchDetail）。直接给结果，避免抽出来跑的 renderStuQuestion 抛 ReferenceError。 */
+global.fetchIPA = (w, l, cb) => { cb({ ipa: 'test', audio: '' }); };
+global.detailKey = (w, l) => String(w) + '|' + l;
+global.DETAIL_CACHE = {};
 global.autoDetailOnce = () => {};
+/* 音效函数：被抽出来跑的 stuPick / renderStuQuestion 会调用 playPick 等，
+   无头环境无 AudioContext，直接置空，避免 ReferenceError 让整份测试崩在第一行。 */
+global.playPick = () => {};
+global.playCorrect = () => {};
+global.playWrong = () => {};
+global.playCountdown = () => {};
+global._sfxTone = () => {};
 global.stuQuit = () => {};
 global.stuMarkKnown = () => {};
 global.stuSpellSubmit = () => {};

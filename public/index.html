@@ -136,11 +136,8 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .seg button.on{border-color:var(--brand);color:var(--brand);background:rgba(79,70,229,.08);font-weight:600}
 [data-theme="dark"] .seg button.on{background:rgba(129,140,248,.14);}
 .seg button small{display:block;font-size:11px;color:var(--sub);font-weight:400;margin-top:2px}
-.stu-extra{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
-.stu-extra .lbl{font-size:14px;color:var(--ink)}
 .seg.sm{gap:6px}
 .seg.sm button{flex:0 0 auto;min-width:48px;padding:8px 12px;font-size:14px;border-radius:11px}
-.stu-extra .btn{display:inline-block;width:auto;margin-top:0;padding:9px 16px;font-size:14px}
 .btn{
   display:block;width:100%;padding:15px 0;border:none;border-radius:15px;font-size:17px;font-weight:700;
   cursor:pointer;margin-top:20px;transition:transform .12s var(--ease), box-shadow .12s var(--ease);color:#fff;
@@ -151,9 +148,16 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .btn.ghost{background:transparent;color:var(--brand);border:1.5px solid rgba(79,70,229,.45);box-shadow:none}
 [data-theme="dark"] .btn.ghost{background:transparent;border-color:rgba(129,140,248,.4);}
 .btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
-/* 「临时加学」强调按钮：绿色渐变，与紫色主按钮区分，突出「继续加量」的语义 */
-.btn.add{background:linear-gradient(135deg,#16a34a 0%,#059669 100%);box-shadow:0 8px 24px -6px rgba(22,163,74,.45)}
-[data-theme="dark"] .btn.add{background:linear-gradient(135deg,#34d399 0%,#10b981 100%);box-shadow:0 8px 24px -6px rgba(52,211,153,.35)}
+/* 「临时加学」次要操作组：整组用浅底容器收拢，按钮沿用全局的「描边次要按钮」(.btn.ghost)。
+   此前这里是绿色实心渐变 —— 全站只有主按钮才是实心渐变，绿色既和紫色主色调打架、
+   又让一个次要动作抢走了主按钮的视觉权重。现在与「智能复习 / 导出备份 / 返回」完全一致。 */
+.add-extra{background:var(--well);border-radius:var(--radius-sm);padding:11px 12px;margin-top:14px}
+[data-theme="dark"] .add-extra{background:var(--well);}
+.add-extra .ex-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.add-extra .ex-head .lbl{font-size:14px;font-weight:600;color:var(--ink);flex:none}
+/* 按钮沿用 .btn.ghost（与「智能复习 / 导出备份」等次要动作同款），仅覆盖为行内尺寸 */
+.add-extra .ex-head .btn{margin:0 0 0 auto;width:auto;display:inline-block;padding:8px 15px;font-size:13.5px}
+@media (max-width:420px){ .add-extra .ex-head .btn{margin-left:0;width:100%} }
 .hint{font-size:12.5px;color:var(--sub);line-height:1.7;margin-top:14px;background:var(--well);border-radius:12px;padding:10px 12px}
 [data-theme="dark"] .hint{background:var(--well);}
 .hint b{color:#334155}
@@ -1289,22 +1293,23 @@ function renderHome(){
           '<div class="sub">按词频科学排序 · 间隔重复记忆 · 支持西语</div>' +
           '<div class="hbtns"><button class="hbtn" id="hStudy">开始制定计划 ▸</button></div>';
       }
+      /* 好友列表放在首页【最顶部】（topbar 之后、背单词卡片之前）。
+         以前它被排在功能宫格下面、几乎要滑到底才看得见，等于「主界面看不到好友」；
+         现在一进首页先看到人，可一键邀请 PK，往下才是背单词与各项功能。 */
       app.innerHTML = topbar +
+        '<div class="card">' +
+          '<div class="wb-head"><span class="wb-count">🧑‍🤝‍🧑 我的好友<span id="homeFriendCount"></span></span>' +
+            '<button class="copybtn" id="hfManage">管理好友</button></div>' +
+          '<div id="homeFriends" class="cb-list"></div>' +
+        '</div>' +
         '<div class="hero">' + hero + '</div>' +
         '<div class="feat-grid">' +
+          '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">管理好友</div><div class="d">添加 / 删除好友 · 一键邀战</div></div>' +
           '<div class="feat pk" id="fPk"><div class="ic">⚡</div><div class="t">单词对战</div><div class="d">和小伙伴实时比拼</div></div>' +
           '<div class="feat" id="fWrong"><div class="ic">📒</div><div class="t">生词本</div><div class="d">' + (ov.wrongCount || 0) + ' 个答错的词</div></div>' +
           '<div class="feat" id="fKnown"><div class="ic">📗</div><div class="t">熟词本</div><div class="d">' + (ov.knownCount || 0) + ' 个已掌握</div></div>' +
           '<div class="feat" id="fVocab"><div class="ic">📊</div><div class="t">词汇量自测</div><div class="d">测测你有多少词</div></div>' +
           '<div class="feat" id="fGroups"><div class="ic">👥</div><div class="t">单词小组</div><div class="d">看看朋友的打卡</div></div>' +
-          '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">管理好友</div><div class="d">添加 / 删除好友</div></div>' +
-        '</div>' +
-        /* 好友列表直接放在首页：以前只有「🧑‍🤝‍🧑 我的好友」一张入口卡片，
-           点进去才是列表，导致用户「在主界面看不到好友」。现在进来就能看见人并一键邀请。 */
-        '<div class="card">' +
-          '<div class="wb-head"><span class="wb-count">🧑‍🤝‍🧑 我的好友<span id="homeFriendCount"></span></span>' +
-            '<button class="copybtn" id="hfManage">管理好友</button></div>' +
-          '<div id="homeFriends" class="cb-list"></div>' +
         '</div>' +
         '<div class="footer-tip" id="ftip" style="display:none"></div>';
       renderHomeFriends();
@@ -1339,8 +1344,11 @@ function renderHomeFriends(){
     if (cnt) cnt.textContent = fs.length ? '（' + fs.length + '）' : '';
     if (!document.getElementById('homeFriends')) return; // 已切走页面，别再写 DOM
     if (!fs.length) {
-      box.innerHTML = '<div class="wb-empty">还没有好友～<br>加个好友就能在这里一键邀请 TA 对战 👋<br>' +
-        '<button class="copybtn" id="hfAdd" style="margin-top:10px">➕ 去添加好友</button></div>';
+      /* 空态要「轻」：好友卡片已经挪到首页最顶部，再用那种三行 + 大留白的空态
+         会把「背单词」主卡片整个顶下去。一行说完，顺手给个入口即可。 */
+      box.innerHTML = '<div class="wb-empty" style="padding:8px 0 2px">还没有好友～ ' +
+        '<button class="copybtn" id="hfAdd" style="margin:0">➕ 去添加好友</button>' +
+        '<div style="font-size:12.5px;color:var(--faint);margin-top:4px">加个好友后，可在这里一键邀请 TA 对战</div></div>';
       var a = document.getElementById('hfAdd');
       if (a) a.onclick = function(){ page = 'friends'; renderFriends(); };
       return;
@@ -2067,7 +2075,7 @@ function bindExtraSeg(segId, btnId){
     setExtraStep(stu.extraStep);
     seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
     b.classList.add('on');
-    if (btn) btn.textContent = '🌱 加学 ' + stu.extraStep + ' 个';
+    if (btn) btn.textContent = '加学 ' + stu.extraStep + ' 个';
   });
 }
 function stuLevel(n){ // 学习量分级（日历条配色）
@@ -2151,13 +2159,17 @@ function renderStuDash(){
         : '（' + ov.wrongCount + '）') +
       '</button>') +
     (t.newRemaining === 0 && t.newPoolRemaining > 0 ?
-      '<div class="stu-extra"><span class="lbl">🌱 临时加学</span>' +
-      '<div class="seg sm" id="extraSeg">' +
-        '<button data-v="10" class="' + (stu.extraStep === 10 ? 'on' : '') + '">10</button>' +
-        '<button data-v="20" class="' + (stu.extraStep === 20 ? 'on' : '') + '">20</button>' +
-        '<button data-v="50" class="' + (stu.extraStep === 50 ? 'on' : '') + '">50</button>' +
+      '<div class="add-extra"><div class="ex-head">' +
+        '<span class="lbl">🌱 临时加学</span>' +
+        '<div class="seg sm" id="extraSeg">' +
+          '<button data-v="10" class="' + (stu.extraStep === 10 ? 'on' : '') + '">10</button>' +
+          '<button data-v="20" class="' + (stu.extraStep === 20 ? 'on' : '') + '">20</button>' +
+          '<button data-v="50" class="' + (stu.extraStep === 50 ? 'on' : '') + '">50</button>' +
+        '</div>' +
+        '<button class="btn ghost" id="stuExtra">加学 ' + stu.extraStep + ' 个</button>' +
       '</div>' +
-      '<button class="btn add" id="stuExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
+      '<div class="hint" style="margin:9px 0 0">今日计划已完成。想再学就选个量，可反复加，不会改动每日计划。</div>' +
+      '</div>' : '') +
   '</div>' +
   '<div class="card">' +
     '<div class="wb-head"><span class="wb-count">学习概况</span></div>' +
@@ -2886,13 +2898,17 @@ function renderStuSummary(){
   '<div class="card" style="padding:14px">' +
     '<button class="btn" id="ssAgain">再来一轮 🔁</button>' +
     (s.extra && s.extra.newPoolRemaining > 0 ?
-      '<div class="stu-extra"><span class="lbl">🌱 临时加学</span>' +
-      '<div class="seg sm" id="ssExtraSeg">' +
-        '<button data-v="10" class="' + (stu.extraStep === 10 ? 'on' : '') + '">10</button>' +
-        '<button data-v="20" class="' + (stu.extraStep === 20 ? 'on' : '') + '">20</button>' +
-        '<button data-v="50" class="' + (stu.extraStep === 50 ? 'on' : '') + '">50</button>' +
+      '<div class="add-extra"><div class="ex-head">' +
+        '<span class="lbl">🌱 临时加学</span>' +
+        '<div class="seg sm" id="ssExtraSeg">' +
+          '<button data-v="10" class="' + (stu.extraStep === 10 ? 'on' : '') + '">10</button>' +
+          '<button data-v="20" class="' + (stu.extraStep === 20 ? 'on' : '') + '">20</button>' +
+          '<button data-v="50" class="' + (stu.extraStep === 50 ? 'on' : '') + '">50</button>' +
+        '</div>' +
+        '<button class="btn ghost" id="ssExtra">加学 ' + stu.extraStep + ' 个</button>' +
       '</div>' +
-      '<button class="btn add" id="ssExtra">🌱 加学 ' + stu.extraStep + ' 个</button></div>' : '') +
+      '<div class="hint" style="margin:9px 0 0">学有余力？选个量继续加，本轮统计会一起累计。</div>' +
+      '</div>' : '') +
     '<button class="btn ghost" id="ssHome">返回学习主页</button>' +
   '</div>';
   app.querySelectorAll('.wl-row [data-spk]').forEach(function(el){
@@ -2906,17 +2922,27 @@ function renderStuSummary(){
   bindExtraSeg('ssExtraSeg', 'ssExtra');
   $('#ssHome').onclick = function(){ renderStudy(); };
 }
-/* 临时加学：再拉 extraNew 个未学新词，追加到当前这一轮队列里继续学（可反复点击叠加） */
+/* 临时加学：再拉 extraNew 个未学新词，追加到当前这一轮队列里继续学（可反复点击叠加）。
+   关键：把当前队列里已有的词通过 exclude 传给后端，后端据此返回【下一批】未学词，
+   这样在没答完当前这批就再点「加学」时，不会把同一批词又重复加进来。 */
 function stuAddExtra(n){
   var s = stu.sess;
   if (!s) { renderStudy(); return; }
-  var url = '/api/study/session?mode=daily&inputMode=' + encodeURIComponent(stu.inputMode || 'choice') + '&extraNew=' + (n || 20);
+  // 当前队列里已有的词：原样交给后端剔除，保证每次加的都是新词（按小写词面去重）
+  var excl = s.queue.map(function(q){ return String(q.word || '').trim().toLowerCase(); }).join(',');
+  var url = '/api/study/session?mode=daily&inputMode=' + encodeURIComponent(stu.inputMode || 'choice') +
+    '&extraNew=' + (n || 20) + (excl ? '&exclude=' + encodeURIComponent(excl) : '');
   api(url, null, 'GET').then(function(d){
     var qs = (d.questions && d.questions.length) ? d.questions.slice() : [];
+    // 兜底去重：万一后端没剔干净，前端再拦一道（按小写词面）
+    var have = {};
+    s.queue.forEach(function(q){ have[String(q.word || '').trim().toLowerCase()] = 1; });
+    qs = qs.filter(function(q){ var k = String(q.word || '').trim().toLowerCase(); if (have[k]) return false; have[k] = 1; return true; });
     if (!qs.length) { toast('已经没有更多新词可加了 🎉'); return; }
     s.queue = s.queue.concat(qs);
     s.extra = d;
     if (s.label && s.label.indexOf('加学') < 0) s.label = s.label + ' · 加学';
+    toast('已追加 ' + qs.length + ' 个新词 🌱');
     stu.view = 'session';
     renderStuQuestion();
   }).catch(function(e){ toast(e.message); });

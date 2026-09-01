@@ -83,12 +83,25 @@ const detailCalls = [];       // openWordDetail
 const autoDetailCalls = [];   // autoDetailOnce
 global.openWordDetail = (w, l, o) => { detailCalls.push({ w, l, o }); };
 global.autoDetailOnce = (w, l, o) => { autoDetailCalls.push({ w, l, o }); };
+/* 音效函数：被抽出来跑的 stuPick / renderStuQuestion 会调用 playPick 等，
+   无头环境无 AudioContext，直接置空，避免 ReferenceError 让整份测试崩在第一行。 */
+global.playPick = () => {};
+global.playCorrect = () => {};
+global.playWrong = () => {};
+global.playCountdown = () => {};
+global._sfxTone = () => {};
 global.token = 'ui-test-token';
 global.speak = () => {};
 global.toast = () => {};
 global.confirm = () => true;
 global.api = () => Promise.resolve({});
 global.fetchDetail = (w, l, cb) => { cb({ ipa: '/x/' }); };
+/* renderStuQuestion 会通过 fetchIPA 补音标（index.html 里的真实实现依赖
+   DETAIL_CACHE / detailKey / fetchDetail）。这里直接给出结果，让被抽出来跑的
+   renderStuQuestion 不会因为 ReferenceError 直接崩掉。 */
+global.fetchIPA = (w, l, cb) => { cb({ ipa: 'test', audio: '' }); };
+global.detailKey = (w, l) => String(w) + '|' + l;
+global.DETAIL_CACHE = {};
 global.stuQuit = () => {};
 global.stuMarkKnown = () => {};
 global.stuSpellSubmit = stuSpellSubmit;

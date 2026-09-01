@@ -22,7 +22,9 @@ const QUESTION_MS = { word: 12000, listen: 15000 }; // 每题作答时长
 const REVEAL_MS = 2000;                             // 答案公布停留时长（最后一人答完快速进入下一题）
 const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
-const APP_VERSION = '1.4.14';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const STALE_PLAYER_TTL = Number(process.env.STALE_PLAYER_TTL) || 45 * 1000; // 掉线超过 45 秒的玩家自动移出房间（清僵尸，避免卡住开局）
+const ROOM_SWEEP_MS = Number(process.env.ROOM_SWEEP_MS) || 15000;           // 房间巡检间隔（清僵尸 / 删空房 / 转移房主）
+const APP_VERSION = '1.4.15';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -1596,6 +1598,36 @@ function isOnline(p) {
   if (p.res && !p.res.writableEnded && !p.res.destroyed) return true;
   return p.lastSeen && Date.now() - p.lastSeen < ONLINE_WINDOW;
 }
+/* 把玩家彻底移出房间：关掉它的 SSE 心跳定时器与连接，并按需转移房主。
+   返回 true 表示房间已空（调用方决定是否删除房间）。
+   注意：不能只清 res —— 玩家对象留在 players 里，会作为「未准备的僵尸」永久卡住 allReady。 */
+function removePlayer(room, p) {
+  if (!room || !p) return true;
+  if (p.ping) { clearInterval(p.ping); p.ping = null; }
+  if (p.res) { try { p.res.end(); } catch (e) {} p.res = null; }
+  room.players.delete(p.id);
+  room.answered && room.answered.delete(p.id);
+  if (p.isHost) {
+    // 房主走了：优先交给还在线的人，否则交给剩下任意一人，保证房间始终有房主能开局
+    const rest = [...room.players.values()];
+    const next = rest.find(isOnline) || rest[0];
+    if (next) next.isHost = true;
+  }
+  return room.players.size === 0;
+}
+/* 清理掉线超过 STALE_PLAYER_TTL 的僵尸玩家（直接关页面 / 断网 / 忘了点「返回首页」都会留下）。
+   僵尸最致命的后果：它是非房主且未准备时，allReady 永远为 false，房主再也开不了局。 */
+function pruneStalePlayers(room) {
+  const now = Date.now();
+  let removed = 0;
+  for (const p of [...room.players.values()]) {
+    if (isOnline(p)) continue;
+    if (!p.lastSeen || now - p.lastSeen < STALE_PLAYER_TTL) continue;
+    if (removePlayer(room, p)) break;
+    removed++;
+  }
+  return removed;
+}
 
 function view(room, playerId) {
   const book = BOOKS.find((b) => b.id === room.settings.bookId) || {};
@@ -1617,10 +1649,13 @@ function view(room, playerId) {
       ready: !!p.ready,
     })),
     you: playerId,
-    /* 准备状态只看【非房主】玩家：房主点「开始」本身就代表他准备好了，
-       再要求房主点一次准备纯属多余（单人房更是荒谬）。
-       房间里只有房主一人时，非房主集合为空 → allReady=true，可直接开始。 */
-    allReady: [...room.players.values()].filter((p) => !p.isHost).every((p) => p.ready),
+    /* 准备状态只看【非房主且在线】的玩家：
+       ① 房主点「开始」本身就代表他准备好了，再要求房主点一次纯属多余（单人房更是荒谬）；
+       ② 已掉线的玩家（关页面/断网，还没到 STALE_PLAYER_TTL 被自动清掉）不能卡住开局——
+          否则房间里留一个「未准备的僵尸」，房主的开始按钮就永远点不动。 */
+    allReady: [...room.players.values()].filter((p) => !p.isHost && isOnline(p)).every((p) => p.ready),
+    // 掉线人数：给房主显示「🧹 移出掉线玩家」按钮用
+    offlineCount: [...room.players.values()].filter((p) => !isOnline(p)).length,
   };
   // 开局倒计时：所有人都能看到同一个「3、2、1」，避免各端计时不一致造成的抢跑
   if (room.phase === 'countdown') v.countdownEndsAt = room.countdownEndsAt;
@@ -1912,24 +1947,31 @@ function restoreFromSnapshot() {
   } catch (e) { return false; }
 }
 
-/* 空房间清理 + 房主掉线自动转移（SSE 与轮询玩家都算在线） */
+/* 空房间清理 + 僵尸玩家清理 + 房主掉线自动转移（SSE 与轮询玩家都算在线）
+   每 15 秒跑一轮：STALE_PLAYER_TTL 是 45 秒，所以僵尸最多存在 1 分钟就被清掉，
+   而不是像以前那样一直挂在房间里，把「全部已准备」永远卡成 false。 */
 setInterval(() => {
   const now = Date.now();
   for (const [id, room] of rooms) {
+    // ① 先清僵尸（可能直接把房间清成空房间）
+    let changed = pruneStalePlayers(room) > 0;
+    if (room.players.size === 0) { clearTimeout(room.timer); rooms.delete(id); continue; }
     const online = [...room.players.values()].filter(isOnline);
     if (online.length === 0) {
       room.emptySince = room.emptySince || now;
-      if (now - room.emptySince > ROOM_EMPTY_TTL) { clearTimeout(room.timer); rooms.delete(id); }
+      if (now - room.emptySince > ROOM_EMPTY_TTL) { clearTimeout(room.timer); rooms.delete(id); continue; }
     } else {
       room.emptySince = 0;
+      // ② 房主掉线/被清掉后，把房主交给还在线的人，避免房间变成谁都开不了局的死房间
       if (!online.some((p) => p.isHost)) {
         for (const p of room.players.values()) p.isHost = false;
         online[0].isHost = true;
-        broadcast(room);
+        changed = true;
       }
     }
+    if (changed) broadcast(room);
   }
-}, 30000);
+}, ROOM_SWEEP_MS);
 
 /* 每 6 小时：清理过期会话 + 写一次每日快照（本地文件模式下的数据保命底牌） */
 setInterval(() => {
@@ -2498,14 +2540,32 @@ const server = http.createServer(async (req, res) => {
       });
       res.write('retry: 2000\n\n');
       player.res = res;
+      player.lastSeen = Date.now(); // SSE 建连也算一次心跳：断线重连能刷新「在线」，不会被当成僵尸清掉
       room.emptySince = 0;
       clearInterval(player.ping);
-      player.ping = setInterval(() => { if (!res.writableEnded && !res.destroyed) res.write(': ping\n\n'); }, 15000);
+      // 心跳：写失败说明连接已经断了，立刻置空 res，让该玩家进入「掉线」判定（之后会被自动清出房间）
+      player.ping = setInterval(() => {
+        try {
+          if (!res.writableEnded && !res.destroyed) res.write(': ping\n\n');
+          else throw new Error('closed');
+        } catch (e) {
+          clearInterval(player.ping); player.ping = null;
+          if (player.res === res) { player.res = null; broadcast(room); }
+        }
+      }, 15000);
       // 连接建立后再广播一次：所有人（含刚加入者自己）的绿点状态立即正确
       broadcast(room);
       req.on('close', () => {
         clearInterval(player.ping);
-        player.res = null;
+        /* 只有「这条连接仍是该玩家的当前连接」才清：EventSource 断线重连时，
+           旧连接的 close 可能比新连接建立晚触发，无脑置空会把新连接一起干掉。 */
+        if (player.res === res) {
+          player.res = null;
+          // SSE 断了就【立即】判定离线：否则要等 ONLINE_WINDOW(12s) 才翻灰，
+          // 这 12 秒里房主的「开始」还会被这个已经关页面的人卡住。
+          // 写成 now - ONLINE_WINDOW（而不是 0）是为了让 STALE_PLAYER_TTL 的清理计时继续正常推进。
+          player.lastSeen = Date.now() - ONLINE_WINDOW;
+        }
         broadcast(room);
       });
       return;
@@ -2528,8 +2588,11 @@ const server = http.createServer(async (req, res) => {
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以开始游戏' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '当前阶段无法开始' });
-      // 只有「非房主」玩家需要先准备（房主点开始即代表自己已就绪）
-      const notReady = [...room.players.values()].filter((x) => !x.isHost && !x.ready);
+      // 只有「非房主且在线」的玩家需要先准备：房主点开始即代表自己已就绪，
+      // 掉线玩家不参与判定（僵尸未准备会把房间永久卡死，谁都开不了局）。
+      // 这里顺手把掉线玩家清掉，保证开始后人数与界面一致。
+      pruneStalePlayers(room);
+      const notReady = [...room.players.values()].filter((x) => !x.isHost && isOnline(x) && !x.ready);
       if (notReady.length) {
         return send(res, 400, { error: '还有 ' + notReady.length + ' 人未准备：' + notReady.map((x) => x.name).join('、') });
       }
@@ -2561,6 +2624,36 @@ const server = http.createServer(async (req, res) => {
       for (const p of room.players.values()) p.ready = false; // 设置变了，大家重新确认
       broadcast(room);
       return send(res, 200, { ok: true, settings: room.settings });
+    }
+    /* 主动离开房间。
+       以前前端「返回首页」只是清本地状态，服务端完全不知情 —— 玩家对象留在房间里，
+       若它当时未准备，allReady 就永远 false，房主再也开不了局（就是「好友进了房间却开始不了」的根因）。
+       现在离开必须显式告知服务端：把玩家从房间移除，房主走了就把房主交给剩下的人。
+       前端用 keepalive fetch 调用（关页面也能发出去）；即使丢了，STALE_PLAYER_TTL 兜底。 */
+    if (req.method === 'POST' && p === '/api/leave') {
+      const b = await readBody(req);
+      const room = rooms.get(roomIdOf(b.roomId));
+      const pl = room && room.players.get(b.playerId);
+      if (!room || !pl) return send(res, 200, { ok: true }); // 幂等：房间/玩家已不存在也算成功
+      const empty = removePlayer(room, pl);
+      if (empty) { clearTimeout(room.timer); rooms.delete(room.id); }
+      else broadcast(room);
+      return send(res, 200, { ok: true });
+    }
+    /* 房主一键清掉房间里的掉线玩家（不用等 STALE_PLAYER_TTL 自动清理） */
+    if (req.method === 'POST' && p === '/api/room/kick-offline') {
+      const b = await readBody(req);
+      const room = rooms.get(roomIdOf(b.roomId));
+      const pl = room && room.players.get(b.playerId);
+      if (!room || !pl) return send(res, 404, { error: '房间不存在' });
+      if (!pl.isHost) return send(res, 403, { error: '只有房主可以移出玩家' });
+      let n = 0;
+      for (const x of [...room.players.values()]) {
+        if (!isOnline(x)) { if (removePlayer(room, x)) break; n++; }
+      }
+      if (room.players.size === 0) { clearTimeout(room.timer); rooms.delete(room.id); }
+      else broadcast(room);
+      return send(res, 200, { ok: true, removed: n });
     }
     if (req.method === 'POST' && p === '/api/answer') {
       const b = await readBody(req);

@@ -170,6 +170,9 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .plist{margin-top:14px}
 .prow{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:13px;background:var(--well);margin-bottom:8px;font-size:15px}
 [data-theme="dark"] .prow{background:var(--well);}
+/* 在线小绿点：房间玩家行用；首页好友列表也复用同一个点，故这里给一份不带父级作用域的基础样式 */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#c7c7cc;flex:none}
+.dot.on{background:var(--ok)}
 .prow .dot{width:8px;height:8px;border-radius:50%;background:#c7c7cc;flex:none}
 .prow .dot.on{background:var(--ok)}
 .prow .host{color:#d97706;font-size:13px}
@@ -191,6 +194,9 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .prow .rdy.on{background:rgba(16,185,129,.14);color:var(--ok)}
 /* 房主无需准备，状态位直接显示身份 */
 .prow .rdy.hostb{background:rgba(245,158,11,.14);color:#b45309}
+/* 掉线玩家：灰底 + 弱化文字，一眼区分「未准备」和「人已经不在了」 */
+.prow .rdy.off{background:rgba(148,163,184,.18);color:var(--sub);opacity:.85}
+[data-theme="dark"] .prow .rdy.hostb{color:#fbbf24}
 /* 房间状态一行提示（人数 / 准备情况） */
 .rl-status{margin-top:10px;font-size:13px;color:var(--sub);display:flex;align-items:center;
   justify-content:center;gap:6px;flex-wrap:wrap}
@@ -1049,7 +1055,12 @@ function startPolling(roomId, playerId){
   if (pollTimer) return;
   pollTimer = setInterval(function(){
     fetch('/api/state?roomId=' + encodeURIComponent(roomId) + '&playerId=' + encodeURIComponent(playerId))
-      .then(function(r){ return r.json(); })
+      .then(function(r){
+        /* 404 = 房间没了或我已不在房间里（被服务端清出 / 房主移出 / 房间解散）。
+           以前这里直接忽略，页面就永远卡在「等待其他玩家准备…」不动了。 */
+        if (r.status === 404) { if (page === 'room') exitRoomBecauseGone('你已离开该房间'); return null; }
+        return r.json();
+      })
       .then(function(d){ if (d && !d.error) applyState(d); })
       .catch(function(){});
   }, 1000);
@@ -1096,6 +1107,19 @@ function ensureFreshState(){
   })();
 }
 function leaveRoom(){
+  /* 必须显式通知服务端：以前只清本地状态，玩家对象还留在房间里，
+     若它当时「未准备」，allReady 就永远 false —— 房主（包括你自己下次进来）
+     会一直看到「🔒 等待其他玩家准备…」却怎么也开不了局。 */
+  if (session && session.roomId) {
+    try {
+      fetch('/api/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: session.roomId, playerId: session.playerId }),
+        keepalive: true,   // 关页面时也能发出去
+      }).catch(function(){});
+    } catch (e) {}
+  }
   if (es) { es.close(); es = null; }
   stopPolling();
   sseAlive = false;
@@ -1104,6 +1128,18 @@ function leaveRoom(){
   if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
   page = 'home';
   renderHome();
+}
+/* 发现「自己已经被移出房间」时（服务端清理/房主移出/房间已解散）主动退回首页，
+   避免页面卡在永远不动的大厅上。silent=true 时不弹提示（例如刚调用过 leaveRoom）。 */
+function exitRoomBecauseGone(msg){
+  if (es) { es.close(); es = null; }
+  stopPolling();
+  sseAlive = false; lastStateStr = '';
+  session = null; cur = null;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  page = 'home';
+  renderHome();
+  if (msg) toast(msg);
 }
 
 /* ---------- 登录 / 注册 ---------- */
@@ -1260,9 +1296,19 @@ function renderHome(){
           '<div class="feat" id="fKnown"><div class="ic">📗</div><div class="t">熟词本</div><div class="d">' + (ov.knownCount || 0) + ' 个已掌握</div></div>' +
           '<div class="feat" id="fVocab"><div class="ic">📊</div><div class="t">词汇量自测</div><div class="d">测测你有多少词</div></div>' +
           '<div class="feat" id="fGroups"><div class="ic">👥</div><div class="t">单词小组</div><div class="d">看看朋友的打卡</div></div>' +
-          '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">我的好友</div><div class="d">邀请一起背单词</div></div>' +
+          '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">管理好友</div><div class="d">添加 / 删除好友</div></div>' +
+        '</div>' +
+        /* 好友列表直接放在首页：以前只有「🧑‍🤝‍🧑 我的好友」一张入口卡片，
+           点进去才是列表，导致用户「在主界面看不到好友」。现在进来就能看见人并一键邀请。 */
+        '<div class="card">' +
+          '<div class="wb-head"><span class="wb-count">🧑‍🤝‍🧑 我的好友<span id="homeFriendCount"></span></span>' +
+            '<button class="copybtn" id="hfManage">管理好友</button></div>' +
+          '<div id="homeFriends" class="cb-list"></div>' +
         '</div>' +
         '<div class="footer-tip" id="ftip" style="display:none"></div>';
+      renderHomeFriends();
+      var hfm = document.getElementById('hfManage');
+      if (hfm) hfm.onclick = function(){ page = 'friends'; renderFriends(); };
       $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
       var hr = $('#hReview'); if (hr) hr.onclick = function(){ page = 'study'; stuStart('review'); };
       $('#fPk').onclick = function(){ renderPk(); };
@@ -1278,6 +1324,41 @@ function renderHome(){
       api('/api/diag', null, 'GET').then(function(d){ var vt = document.getElementById('ver-tag'); if (vt && d && d.version) vt.textContent = '　·　v' + d.version; }).catch(function(){});
     })
     .catch(function(e){ toast(e.message); renderAuth(); });
+}
+
+/* 首页好友列表：以前好友只在一个二级页面里，用户反馈「主界面看不到好友列表」。
+   这里直接在首页渲染，带在线小绿点 + 一键邀请 PK；点「管理好友」才进完整页面（增删好友）。 */
+function renderHomeFriends(){
+  var box = document.getElementById('homeFriends');
+  if (!box) return;
+  box.innerHTML = '<div class="wb-empty">加载中…</div>';
+  api('/api/friends', null, 'GET').then(function(d){
+    var fs = d.friends || [];
+    var cnt = document.getElementById('homeFriendCount');
+    if (cnt) cnt.textContent = fs.length ? '（' + fs.length + '）' : '';
+    if (!document.getElementById('homeFriends')) return; // 已切走页面，别再写 DOM
+    if (!fs.length) {
+      box.innerHTML = '<div class="wb-empty">还没有好友～<br>加个好友就能在这里一键邀请 TA 对战 👋<br>' +
+        '<button class="copybtn" id="hfAdd" style="margin-top:10px">➕ 去添加好友</button></div>';
+      var a = document.getElementById('hfAdd');
+      if (a) a.onclick = function(){ page = 'friends'; renderFriends(); };
+      return;
+    }
+    box.innerHTML = fs.map(function(f){
+      return '<div class="cb-row">' +
+        '<span class="dot ' + (f.online ? 'on' : '') + '"></span>' +
+        '<span class="nm">' + esc(f.name) + ' <small>@' + esc(f.username) + '</small></span>' +
+        '<span class="ct">' + (f.online ? '<span style="color:var(--ok)">在线</span>' : '🔥 ' + (f.streak || 0) + ' 天') +
+          ' · 今日新 ' + f.today.new + '</span>' +
+        '<button class="copybtn pk-inv" data-u="' + esc(f.username) + '">⚡ 邀请PK</button>' +
+        '</div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('.pk-inv'), function(b){
+      b.onclick = function(){ inviteFriendToPk(b.getAttribute('data-u')); };
+    });
+  }).catch(function(){
+    if (document.getElementById('homeFriends')) box.innerHTML = '<div class="wb-empty">好友加载失败，下拉刷新试试</div>';
+  });
 }
 
 /* ---------- 设置（⚙️）：学习计划 / 外观 / 账号 ---------- */
@@ -1488,7 +1569,7 @@ function renderPk(){
     if (code.length !== 4) { toast('请输入 4 位房间号'); return; }
     var btn = this; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>加入中…';
     api('/api/join', { token: token, roomId: code })
-      .then(function(d){ session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); })
+      .then(function(d){ notifyLeaveIfSwitching(d.roomId); session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); })
       .catch(function(e){ toast(e.message); btn.disabled = false; btn.innerHTML = '加入对战 🤝'; });
   };
 }
@@ -1650,10 +1731,30 @@ function inviteFriendToPk(username){
       .then(function(){ toast('已邀请 @' + username + ' 进入房间'); })
       .catch(function(e){ toast(e.message); });
   }
-  if (session && session.roomId) { doInvite(session.roomId, session.playerId); return; }
+  /* 邀请后自己必须回到房间里：否则好友进来了，房主却停在好友列表页，
+     房间里没人点「开始」—— 表现就是「好友进得去，却怎么也开不了局」。 */
+  function enterRoom(roomId, playerId){
+    session = { roomId: roomId, playerId: playerId };
+    page = 'room';
+    connect(roomId, playerId);
+  }
+  if (session && session.roomId) { enterRoom(session.roomId, session.playerId); doInvite(session.roomId, session.playerId); return; }
   api('/api/create', { token: token, bookId: '', mode: 'word', count: 20 })
-    .then(function(d){ session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); doInvite(d.roomId, d.playerId); })
+    .then(function(d){ enterRoom(d.roomId, d.playerId); doInvite(d.roomId, d.playerId); })
     .catch(function(e){ toast(e.message); });
+}
+/* 从 A 房间切到 B 房间时，先跟服务端说一声「我离开了 A」，
+   不然 A 房间里会留下一个僵尸玩家，把 A 房间的开局永久卡死。 */
+function notifyLeaveIfSwitching(newRoomId){
+  var old = session;
+  if (old && old.roomId && old.roomId !== newRoomId) {
+    try {
+      fetch('/api/leave', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: old.roomId, playerId: old.playerId }), keepalive: true,
+      }).catch(function(){});
+    } catch (e) {}
+  }
 }
 
 /* ---------- PK 邀请接收（全局轮询横幅） ---------- */
@@ -1681,7 +1782,10 @@ function showInviteBanner(inv){
   $('#ibJoin').onclick = function(){
     b.style.display = 'none';
     api('/api/invite?id=' + encodeURIComponent(inv.id), null, 'DELETE').catch(function(){});
-    api('/api/join', { token: token, roomId: inv.roomId }).then(function(d){ session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId); })
+    api('/api/join', { token: token, roomId: inv.roomId }).then(function(d){
+      notifyLeaveIfSwitching(d.roomId);
+      session = { roomId: d.roomId, playerId: d.playerId }; page = 'room'; connect(d.roomId, d.playerId);
+    })
       .catch(function(e){ toast(e.message); });
   };
   $('#ibIgnore').onclick = function(){
@@ -2951,10 +3055,13 @@ function renderLobby(v){
   var playerRows = v.players.map(function(p){
     if (p.id === v.you) { meHost = p.isHost; meReady = !!p.ready; }
     var isMe = p.id === v.you;
-    /* 房主无需准备：他那一行的状态徽章显示「👑 房主」而不是「未准备」 */
+    /* 房主无需准备：他那一行的状态徽章显示「👑 房主」而不是「未准备」；
+       掉线的玩家单列「📴 已掉线」，并且不再计入「未准备」阻塞开局（服务端 allReady 同样跳过它）。 */
     var rdyHtml = p.isHost
-      ? '<span class="rdy hostb">👑 房主</span>'
-      : '<span class="rdy ' + (p.ready ? 'on' : '') + '">' + (p.ready ? '✅ 已准备' : '⏳ 未准备') + '</span>';
+      ? '<span class="rdy hostb">👑 房主' + (p.connected ? '' : '（掉线）') + '</span>'
+      : (p.connected
+          ? '<span class="rdy ' + (p.ready ? 'on' : '') + '">' + (p.ready ? '✅ 已准备' : '⏳ 未准备') + '</span>'
+          : '<span class="rdy off">📴 已掉线</span>');
     return '<div class="prow">' +
       '<span class="dot ' + (p.connected ? 'on' : '') + '"></span>' +
       friendNameHtml(p, isMe) +
@@ -2967,9 +3074,12 @@ function renderLobby(v){
     ? INFO.ips.map(function(ip){ return '<code>http://' + esc(ip) + ':' + INFO.port + '</code>'; }).join(' 或 ')
     : '<code>http://本机IP:' + INFO.port + '</code>';
   var modeName = v.settings.mode === 'listen' ? '🎧 听音辨义' : '📖 看词选义';
-  // 小功能配套：准备情况统计（房主不计入，因为房主无需准备）
-  var readyCount = v.players.filter(function(p){ return !p.isHost && p.ready; }).length;
-  var guestCount = v.players.filter(function(p){ return !p.isHost; }).length;
+  // 准备情况统计（房主不计入，因为房主无需准备；掉线的人也不计入，否则会永久卡住开局）
+  var guests = v.players.filter(function(p){ return !p.isHost; });
+  var liveGuests = guests.filter(function(p){ return p.connected; });
+  var readyCount = liveGuests.filter(function(p){ return p.ready; }).length;
+  var guestCount = liveGuests.length;
+  var offCount = v.players.filter(function(p){ return !p.connected; }).length;
   var shareHtml = isPublicVisit()
     ? '把这个网址发给朋友（任何网络都能进，无需同一 WiFi）：<br><code>' + esc(location.origin) + '</code><br>' +
       '<button class="copybtn" id="copyLinkBtn">📋 复制网址 + 房间号</button>'
@@ -2982,6 +3092,7 @@ function renderLobby(v){
     '<div class="rl-status">' +
       '👥 <b>' + v.players.length + '</b> 人在房间 · ' +
       '✅ <b>' + readyCount + '</b>/' + Math.max(0, guestCount) + ' 位玩家已准备' +
+      (offCount ? ' · <span style="color:var(--sub)">' + offCount + ' 人掉线（不阻塞开局）</span>' : '') +
       (v.allReady ? ' · <span style="color:var(--ok)">可以开始</span>' : '') +
     '</div>' +
     '<div class="share">' + shareHtml + '</div>' +
@@ -3007,7 +3118,9 @@ function renderLobby(v){
         '<div class="hint">' + (v.players.length > 1
             ? '等其他玩家都点「我准备好了」后即可开始（你作为房主无需准备）；开始时有 3 秒倒计时。'
             : '单人也能练，直接开始即可；开始时有 3 秒倒计时。') +
-          '最多 5 人。</div>'
+          '最多 5 人。掉线的玩家不会阻塞开始，约 45 秒后自动移出房间。</div>' +
+        // 房主可立刻清掉掉线玩家，不用等自动清理（清理后房间人数恢复真实）
+        (offCount ? '<button class="btn ghost" id="kickBtn">🧹 移出 ' + offCount + ' 位掉线玩家</button>' : '')
       : '<div class="waiting">' + (meReady ? '已准备，等待房主开始…' : '点上方「我准备好了」，等房主开始 👀') + '</div>') +
     '<button class="btn ghost" id="inviteBtn">🤝 邀请好友进房间</button>' +
     '<div class="hint" style="margin-top:10px">💡 点房间里其他玩家的名字，即可一键加为好友（不用搜索）。</div>' +
@@ -3021,6 +3134,13 @@ function renderLobby(v){
       .catch(function(e){ toast(e.message); rb.disabled = false; });
   };
   bindRoomSettings(v, meHost);
+  var kb = $('#kickBtn');
+  if (kb) kb.onclick = function(){
+    kb.disabled = true; kb.textContent = '清理中…';
+    api('/api/room/kick-offline', { roomId: session.roomId, playerId: session.playerId })
+      .then(function(d){ toast('已移出 ' + ((d && d.removed) || 0) + ' 位掉线玩家'); })
+      .catch(function(e){ toast(e.message); kb.disabled = false; kb.textContent = '🧹 移出掉线玩家'; });
+  };
   var sb = $('#startBtn');
   if (sb) sb.onclick = function(){
     if (sb.disabled) return;

@@ -120,6 +120,7 @@ async function main() {
     // 本轮审计修正：主释义偏僻/错填的词，确认已恢复为常用义（且非纯词性垃圾）
     quick: ['快'], august: ['八月'], refuse: ['拒绝'], pitch: ['球场', '音高'],
     grave: ['严重'], fringe: ['边缘'], monster: ['怪物'], trifle: ['琐事', '少量'],
+    fit: ['适合', '健康', '安装'],
   };
   for (const [w, kws] of Object.entries(expect)) {
     let foundClean = null, foundGarbage = false;

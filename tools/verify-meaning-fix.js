@@ -27,6 +27,9 @@ const CASES = [
   ['fringe', '边缘', '附加'],
   ['monster', '怪物', '庞大'],
   ['trifle', '琐事', '嘲笑'],
+  // 用户截图反馈 fit 在雅思中只显示生僻医学义；/api/word 可能返回已缓存的在线富化数据，
+  // 所以用首条词书义项里一定出现的「适应」做 must，重点仍是 firstAvoid=痉挛 不再孤立出现。
+  ['fit', '适应', '痉挛'],
 ];
 (async () => {
   const ua = 'vfix_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);

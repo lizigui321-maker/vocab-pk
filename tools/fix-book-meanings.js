@@ -43,6 +43,9 @@ const FIXES = [
   ['zhongkao', 'august', 'n 八月(略作Aug)；adj 威严的（仅小写august）'],
   ['kaoyan', 'august', 'n 八月(略作Aug)；adj 威严的（仅小写august）'],
   ['kaoyan-core', 'august', 'n 八月(略作Aug)；adj 威严的（仅小写august）'],
+  // 用户反馈 fit 在雅思中只显示生僻医学义「(病的)发作，痉挛」
+  ['ielts', 'fit', 'v 适合；适应；安装；adj 健康的；合适的；(病的)发作，痉挛'],
+  ['ielts-core', 'fit', 'v 适合；适应；安装；adj 健康的；合适的；(病的)发作，痉挛'],
 ];
 
 let raw = fs.readFileSync(BOOKS_FILE, 'utf8');

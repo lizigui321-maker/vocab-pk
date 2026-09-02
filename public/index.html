@@ -317,6 +317,16 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .wd-sense .df{font-size:15px;color:var(--ink);font-weight:600}
 .wd-sense .ex{display:block;font-size:13px;color:var(--sub);margin-top:7px;line-height:1.55;padding-left:2px}
 .wd-sense .ex b{color:var(--brand);font-weight:600}
+.wd-ex{display:flex;align-items:center;gap:11px;background:var(--bg);border-radius:14px;padding:11px 14px;margin-bottom:9px;border:1px solid transparent}
+.wd-ex:first-child{border-color:rgba(79,70,229,.16);background:rgba(79,70,229,.04)}
+.wd-ex .wd-spk{flex:none;width:36px;height:36px;padding:0;border:none;border-radius:50%;background:var(--grad);color:#fff;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(79,70,229,.25);transition:transform .12s var(--ease);margin-top:1px}
+.wd-ex .wd-spk:active{transform:scale(.9)}
+.wd-ex .wd-spk.playing{animation:wdPulse .7s var(--ease) infinite}
+@keyframes wdPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+.wd-ex-body{flex:1;min-width:0}
+.wd-ex-body .df{font-size:15px;color:var(--ink);font-weight:600}
+.wd-ex-body .ex{display:block;font-size:13px;color:var(--sub);margin-top:6px;line-height:1.55;padding-left:2px}
+[data-theme="dark"] .wd-ex{background:var(--well)}
 .wd-ph{display:flex;gap:10px;align-items:baseline;padding:9px 2px;border-bottom:1px dashed var(--line);font-size:14px}
 .wd-ph:last-child{border-bottom:none}
 .wd-ph b{color:var(--ink);flex:none}
@@ -2595,14 +2605,26 @@ function openWordDetail(word, lang, opts){
       }).join('') + '</div>';
     }
     if (d.examples && d.examples.length) {
-      html += '<div class="wd-sec"><h4>例句</h4>' + d.examples.map(function(x){
-        return '<div class="wd-sense"><span class="df">' + wdEscape(x.en) + '</span>' + (x.zh ? '<span class="ex">' + wdEscape(x.zh) + '</span>' : '') + '</div>';
+      html += '<div class="wd-sec"><h4>例句</h4>' + d.examples.map(function(x, idx){
+        return '<div class="wd-ex">' +
+          '<button class="wd-spk" data-idx="' + idx + '" aria-label="朗读例句">🔊</button>' +
+          '<div class="wd-ex-body"><span class="df">' + wdEscape(x.en) + '</span>' + (x.zh ? '<span class="ex">' + wdEscape(x.zh) + '</span>' : '') + '</div>' +
+        '</div>';
       }).join('') + '</div>';
     }
     if (d.forms && d.forms.length) {
       html += '<div class="wd-sec"><h4>词形变化</h4><div class="wd-form">' + d.forms.map(function(f){ return '<span>' + wdEscape(f.name) + ' <b>' + wdEscape(f.value) + '</b></span>'; }).join('') + '</div></div>';
     }
     body.innerHTML = html || '<div class="wd-loading">暂无更多释义</div>';
+    /* 例句朗读：每个 🔊 按钮复用 speak()，真人音（有道/Google TTS）优先，失败才回退系统语音，
+       不会出现机械音；点哪个读哪句，且会自动取消上一句。 */
+    Array.prototype.forEach.call(body.querySelectorAll('.wd-spk'), function(btn){
+      btn.onclick = function(){
+        var i = parseInt(btn.getAttribute('data-idx'), 10);
+        var ex = d.examples && d.examples[i];
+        if (ex && ex.en) { speak(ex.en, lang); btn.classList.add('playing'); setTimeout(function(){ btn.classList.remove('playing'); }, 1400); }
+      };
+    });
   }
   /* 首次打开先即时展示词书义（命中缓存则直接出完整释义）；后台富化完成后自动补刷。
      轮询时带 wait=1：后端会同步等在线富化完成再返回，避免重复读到还没富化好的词书义。

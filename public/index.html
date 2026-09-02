@@ -298,6 +298,10 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .wd-x{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:50%;border:none;background:rgba(120,120,128,.14);color:var(--sub);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:2;transition:background .15s,transform .12s var(--ease)}
 .wd-x:hover{background:rgba(120,120,128,.28);color:var(--ink)}
 .wd-x:active{transform:scale(.88)}
+/* 详解内的「← 返回」：点了回到上一个词（点关联词 chip 进来的才有） */
+.wd-back{position:absolute;top:14px;left:14px;height:30px;padding:0 13px;border-radius:15px;border:none;background:rgba(120,120,128,.14);color:var(--sub);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;gap:4px;z-index:2;transition:background .15s,transform .12s var(--ease)}
+.wd-back:hover{background:rgba(120,120,128,.28);color:var(--ink)}
+.wd-back:active{transform:scale(.94)}
 .wd-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding-right:44px}
 .wd-word{font-size:38px;font-weight:800;color:var(--ink);letter-spacing:.4px;line-height:1.12}
 .wd-ipa{font-size:15px;color:var(--sub);font-family:"Helvetica Neue",Arial,sans-serif;font-style:italic;line-height:1.5}
@@ -334,6 +338,14 @@ input[type=text]:focus,input[type=password]:focus{border-color:var(--brand);back
 .wd-form{display:flex;flex-wrap:wrap;gap:8px}
 .wd-form span{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12.5px;color:var(--sub)}
 .wd-form b{color:var(--ink);font-weight:700}
+/* 关联词（近义 / 反义 / 同根派生）：可点 chip，点了跳到该词详解 */
+.wd-chiprow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.wd-pos{display:inline-flex;align-items:center;background:rgba(79,70,229,.12);color:var(--brand);border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;flex:0 0 auto}
+.wd-gtran{font-size:12px;color:var(--sub);flex:0 0 auto}
+.wd-chip{display:inline-flex;align-items:baseline;gap:5px;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--ink);cursor:pointer;text-align:left;transition:background .15s,border-color .15s,transform .12s var(--ease)}
+.wd-chip:hover{border-color:var(--brand);background:rgba(79,70,229,.08)}
+.wd-chip:active{transform:scale(.94)}
+.wd-chip i{font-style:normal;font-size:11px;color:var(--sub);opacity:.9}
 .wd-loading{text-align:center;padding:36px 0;color:var(--sub);font-size:14px;line-height:1.8}
 .wd-exam{display:inline-block;font-size:11px;color:#d97706;background:rgba(217,119,6,.13);border-radius:99px;padding:3px 12px;margin:0 5px 6px 0;font-weight:600}
 .wd-foot{display:flex;align-items:center;gap:10px;padding:14px 22px 16px;border-top:var(--hair);background:var(--card)}
@@ -2362,6 +2374,18 @@ function stuStart(mode, unit, label, extraNew){
  * 服务端查不到时浏览器直连 dictionaryapi.dev 兜底。结果存 localStorage 复用。
  * 同一个缓存同时服务「音标小标签」与「详解弹窗」，避免重复请求。
  */
+/* 浏览器端详解缓存的结构版本。★关键：以前这个缓存没有版本号，导致「词根」上线后
+   用户浏览器里存的仍是加字段之前的旧条目（没有 etym/synonyms/related），
+   fetchDetail 一命中缓存就直接返回旧数据、永不重新拉取 —— 于是服务端明明有词根，
+   界面却永远不显示。结构一变就 +1，自动清空旧缓存（与服务端 DICT_VER 同理）。
+   ver 2：新增 synonyms / antonyms / related；ver 1：etym（词根词源）。 */
+var DETAIL_VER = 2;
+try {
+  if (localStorage.getItem('vpk_detail_ver') !== String(DETAIL_VER)) {
+    localStorage.removeItem('vpk_detail');
+    localStorage.setItem('vpk_detail_ver', String(DETAIL_VER));
+  }
+} catch (e) {}
 var DETAIL_CACHE = {};
 try { DETAIL_CACHE = JSON.parse(localStorage.getItem('vpk_detail') || '{}'); } catch (e) { DETAIL_CACHE = {}; }
 function detailKey(word, lang){ return (lang === 'es' ? 'es' : 'en') + ':' + String(word || '').trim().toLowerCase(); }
@@ -2495,6 +2519,17 @@ function wdEscape(s){ return esc(s); }
 var wdActive = null;               // 当前活动弹窗（供 ESC 关闭）
 var wdScrollLock = null;           // 首个弹窗打开前的 body overflow（关闭时恢复）
 var stuPendingSpeak = null;        // 弹窗开着时挂起的「下一题自动发音」，关弹窗后补播，避免声音与卡片错配
+var wdHistDepth = 0;               // 详解弹窗往 history 压了几层（回退键可逐层返回上一个词，关闭时统一清掉）
+var wdClosing = false;             // 自己调用 history.go 清理时置位，避免 popstate 被重复处理
+/* 手机/浏览器回退键：先逐层返回上一个词，没有上一个词了才关弹窗。
+   （不接管弹窗关闭后的回退，避免影响页面本身的导航历史） */
+window.addEventListener('popstate', function(){
+  if (wdClosing) { wdClosing = false; return; }   // 是我们自己 history.go 触发的，忽略
+  if (!wdActive) return;                          // 弹窗没开 → 与详解无关，不管
+  if (wdHistDepth > 0) wdHistDepth -= 1;
+  if (wdActive.goBack && wdActive.goBack()) return; // 还有上一个词 → 弹窗内返回
+  wdActive.close();                               // 栈空了 → 关闭详解
+});
 function wdOnKey(e){ if (wdActive && e.key === 'Escape') wdActive.close(); }
 function openWordDetail(word, lang, opts){
   opts = opts || {};
@@ -2511,26 +2546,75 @@ function openWordDetail(word, lang, opts){
   ov.className = 'wd-overlay';
   ov.innerHTML = '<div class="wd-sheet" role="dialog" aria-modal="true" aria-label="' + wdEscape(word) + ' 详解">' +
     '<button class="wd-x" id="wdX" aria-label="关闭">✕</button>' +
+    '<button class="wd-back" id="wdBack" aria-label="返回上一个词" style="display:none">← 返回</button>' +
     '<div class="wd-scroll">' +
       '<div class="wd-head">' +
-        '<span class="wd-word">' + wdEscape(word) + '</span>' +
+        '<span class="wd-word" id="wdWord">' + wdEscape(word) + '</span>' +
         '<span class="wd-ipa" id="wdIpa"></span>' +
       '</div>' +
       '<div class="wd-speakrow">' +
         '<button class="wd-speak" id="wdSpeak">🔊 真人发音</button>' +
-        (opts.meaning ? '<button class="wd-speak ghost" id="wdCopy">📋 复制释义</button>' : '') +
+        '<button class="wd-speak ghost" id="wdCopy" style="display:none">📋 复制释义</button>' +
       '</div>' +
-      (opts.meaning ? '<div class="wd-book">📖 <span><b>词书释义：</b>' + wdEscape(opts.meaning) + '</span></div>' : '') +
+      // 词书释义块与复制按钮常驻（跳到关联词时不一定有词书义），由 applyHeader 控制显隐
+      '<div class="wd-book" id="wdBook" style="display:none"></div>' +
       '<div id="wdBody"><div class="wd-loading"><span class="spin" style="border-color:rgba(79,70,229,.3);border-top-color:var(--brand)"></span>正在查询详解…</div></div>' +
     '</div>' +
     '<div class="wd-foot"><button class="btn wd-done" id="wdClose">我知道了</button></div>' +
   '</div>';
   document.body.appendChild(ov);
+  /* 关联词导航：点近义词/派生词等 chip 时把当前词压栈、跳到新词；
+     「← 返回」按钮或手机/浏览器回退键弹栈回到上一个词。 */
+  var navStack = [];
+  var cur = { word: word, lang: lang, meaning: (opts && opts.meaning) || '' };
+  function applyHeader(){
+    var we = ov.querySelector('#wdWord');  if (we) we.textContent = cur.word;
+    var be = ov.querySelector('#wdBook');
+    if (be) {
+      if (cur.meaning) { be.style.display = ''; be.innerHTML = '📖 <span><b>词书释义：</b>' + wdEscape(cur.meaning) + '</span>'; }
+      else { be.style.display = 'none'; be.innerHTML = ''; }
+    }
+    var ce = ov.querySelector('#wdCopy'); if (ce) ce.style.display = cur.meaning ? '' : 'none';
+    var bb = ov.querySelector('#wdBack'); if (bb) bb.style.display = navStack.length ? '' : 'none';
+    var ip = ov.querySelector('#wdIpa');  if (ip) ip.textContent = '';   // 换词后先清空，拿到新数据再填
+    var bd = ov.querySelector('#wdBody');
+    if (bd) bd.innerHTML = '<div class="wd-loading"><span class="spin" style="border-color:rgba(79,70,229,.3);border-top-color:var(--brand)"></span>正在查询详解…</div>';
+  }
+  function loadAndRender(){ wdPollTries = 0; fetchDetail(cur.word, cur.lang, wdRenderEnriched, false, false); }
+  function gotoWord(w, l, meaning){
+    w = String(w || '').trim();
+    if (!w) return;
+    if (w.toLowerCase() === String(cur.word).toLowerCase()) return;   // 点当前词本身不跳转
+    navStack.push({ word: cur.word, lang: cur.lang, meaning: cur.meaning });
+    wdHistDepth += 1;
+    try { history.pushState({ wdNav: wdHistDepth }, ''); } catch (e) {}
+    cur = { word: w, lang: (l === 'es') ? 'es' : (l || cur.lang || 'en'), meaning: meaning || '' };
+    applyHeader();
+    var sc = ov.querySelector('.wd-scroll'); if (sc) sc.scrollTop = 0;   // 跳词后回到顶部
+    loadAndRender();
+  }
+  function back(){
+    if (!navStack.length) return false;
+    cur = navStack.pop();
+    applyHeader();
+    loadAndRender();
+    return true;
+  }
+  var bb0 = ov.querySelector('#wdBack');
+  if (bb0) bb0.onclick = function(){ back(); };
+  applyHeader();
   var closed = false;
   function close(){
     if (closed) return;
     closed = true;
     wdActive = null;
+    /* 关弹窗时把我们自己压进 history 的那几层一次性退干净，
+       否则关闭后用户再按回退键会「空按」几次（只是在退我们留下的历史）。 */
+    if (wdHistDepth > 0) {
+      wdClosing = true;
+      try { history.go(-wdHistDepth); } catch (e) { wdClosing = false; }
+    }
+    wdHistDepth = 0;
     document.removeEventListener('keydown', wdOnKey);
     ov.classList.add('wd-out');
     var sh = ov.querySelector('.wd-sheet');
@@ -2548,13 +2632,13 @@ function openWordDetail(word, lang, opts){
       }
     }, 180);
   }
-  wdActive = { close: close };
+  wdActive = { close: close, goBack: back };   // goBack 供 popstate（回退键）逐层返回上一个词
   ov.addEventListener('click', function(e){ if (e.target === ov) close(); });
   ov.querySelector('#wdClose').onclick = close;
   ov.querySelector('#wdX').onclick = close;
-  ov.querySelector('#wdSpeak').onclick = function(){ speak(word, lang); };
+  ov.querySelector('#wdSpeak').onclick = function(){ speak(cur.word, cur.lang); };
   var cp = ov.querySelector('#wdCopy');
-  if (cp) cp.onclick = function(){ copyText(opts.meaning, '释义已复制'); };
+  if (cp) cp.onclick = function(){ copyText(cur.meaning, '释义已复制'); };
   var ipaEl = ov.querySelector('#wdIpa');
   function renderDetail(d) {
     if (!document.body.contains(ov)) return;
@@ -2574,7 +2658,7 @@ function openWordDetail(word, lang, opts){
     /* 过滤：详情里「词书释义」已单独展示 opts.meaning，释义列表里若只是它的近义重复（同一意思出现两次），
        就跳过，避免弹窗刷出一堆近义项。仅当 book 释义存在时才过滤，且只隐藏「被 book 释义完全覆盖 / 等同」的义项，
        保留真正补充新信息的义项（如 book=银行 而义项=银行；河岸 仍保留）。 */
-    var bookDef = (opts && opts.meaning) ? String(opts.meaning).replace(/^[a-zA-Z]+[.&]?\s*/, '').replace(/[\s，。、；：""''（）【】()\-—\/·《》]/g, '') : '';
+    var bookDef = cur.meaning ? String(cur.meaning).replace(/^[a-zA-Z]+[.&]?\s*/, '').replace(/[\s，。、；：""''（）【】()\-—\/·《》]/g, '') : '';
     var showSenses = d.senses.filter(function (s) {
       if (!bookDef) return true;
       var sd = String(s.def || '').replace(/^[a-zA-Z]+[.&]?\s*/, '').replace(/[\s，。、；：""''（）【】()\-—\/·《》]/g, '');
@@ -2596,8 +2680,46 @@ function openWordDetail(word, lang, opts){
           (s.en ? '<span class="ex">例：' + wdEscape(s.en) + '</span>' : '') + '</div>';
       }).join('') + '</div>';
     }
-    /* 词根/词源：仅当在线词典返回真实 origin 时才展示；缺失则整段不渲染（绝不杜撰） */
+    /* 关联词 chip：点了就跳到该词详解（内部压栈，可用「← 返回」按钮或手机回退键回来） */
+    function chip(w, tran){
+      return '<button class="wd-chip" data-w="' + wdEscape(w) + '">' + wdEscape(w) +
+        (tran ? '<i>' + wdEscape(tran) + '</i>' : '') + '</button>';
+    }
+    /* 词根/词源：仅当在线词典返回真实词源时才展示；缺失则整段不渲染（绝不杜撰） */
     if (d.etym) html += '<div class="wd-sec"><h4>词根词源</h4><div class="wd-etym">' + wdEscape(d.etym) + '</div></div>';
+    if (d.forms && d.forms.length) {
+      html += '<div class="wd-sec"><h4>词形变化</h4><div class="wd-form">' + d.forms.map(function(f){ return '<span>' + wdEscape(f.name) + ' <b>' + wdEscape(f.value) + '</b></span>'; }).join('') + '</div></div>';
+    }
+    /* 同根 · 派生词：有道 rel_word，按词性分组且自带中文释义。
+       例 happy → adv: happily（快乐地）/ n: happiness（幸福）；
+          create → adj: creative / adv: creatively / n: creation, creativity, creator… */
+    if (d.related && d.related.length) {
+      html += '<div class="wd-sec"><h4>同根 · 派生词</h4>';
+      d.related.forEach(function(g){
+        var ws = g.words || [];
+        if (!ws.length) return;
+        html += '<div class="wd-chiprow">' + (g.pos ? '<span class="wd-pos">' + wdEscape(g.pos) + '</span>' : '') +
+          ws.map(function(w){ return chip(w.word, w.tran); }).join('') + '</div>';
+      });
+      html += '</div>';
+    }
+    /* 近义词：有道 syno，按词性分组（如 happy → adj: pleased / glad / blessed） */
+    if (d.synonyms && d.synonyms.length) {
+      html += '<div class="wd-sec"><h4>近义词</h4>';
+      d.synonyms.forEach(function(g){
+        var ws = (g.words || []).filter(Boolean);
+        if (!ws.length) return;
+        html += '<div class="wd-chiprow">' + (g.pos ? '<span class="wd-pos">' + wdEscape(g.pos) + '</span>' : '') +
+          (g.tran ? '<span class="wd-gtran">' + wdEscape(g.tran) + '</span>' : '') +
+          ws.map(function(w){ return chip(w, ''); }).join('') + '</div>';
+      });
+      html += '</div>';
+    }
+    /* 反义词：有道没有反义词数据，只有 dictionaryapi.dev 有，且是后台异步补充的 —— 没有就不渲染 */
+    if (d.antonyms && d.antonyms.length) {
+      html += '<div class="wd-sec"><h4>反义词</h4><div class="wd-chiprow">' +
+        d.antonyms.map(function(w){ return chip(w, ''); }).join('') + '</div></div>';
+    }
     if (d.phrases && d.phrases.length) {
       html += '<div class="wd-sec"><h4>常用搭配</h4>' + d.phrases.map(function(p){
         return '<div class="wd-ph"><b>' + wdEscape(p.ph) + '</b>' + (p.tr ? ' <span class="t">' + wdEscape(p.tr) + '</span>' : '') + '</div>';
@@ -2611,17 +2733,18 @@ function openWordDetail(word, lang, opts){
         '</div>';
       }).join('') + '</div>';
     }
-    if (d.forms && d.forms.length) {
-      html += '<div class="wd-sec"><h4>词形变化</h4><div class="wd-form">' + d.forms.map(function(f){ return '<span>' + wdEscape(f.name) + ' <b>' + wdEscape(f.value) + '</b></span>'; }).join('') + '</div></div>';
-    }
     body.innerHTML = html || '<div class="wd-loading">暂无更多释义</div>';
+    /* 关联词 chip 点击 → 跳到该词详解（压栈，可用「← 返回」按钮或手机回退键回到上一个词） */
+    Array.prototype.forEach.call(body.querySelectorAll('.wd-chip'), function(btn){
+      btn.onclick = function(){ gotoWord(btn.getAttribute('data-w'), cur.lang, ''); };
+    });
     /* 例句朗读：每个 🔊 按钮复用 speak()，真人音（有道/Google TTS）优先，失败才回退系统语音，
        不会出现机械音；点哪个读哪句，且会自动取消上一句。 */
     Array.prototype.forEach.call(body.querySelectorAll('.wd-spk'), function(btn){
       btn.onclick = function(){
         var i = parseInt(btn.getAttribute('data-idx'), 10);
         var ex = d.examples && d.examples[i];
-        if (ex && ex.en) { speak(ex.en, lang); btn.classList.add('playing'); setTimeout(function(){ btn.classList.remove('playing'); }, 1400); }
+        if (ex && ex.en) { speak(ex.en, cur.lang); btn.classList.add('playing'); setTimeout(function(){ btn.classList.remove('playing'); }, 1400); }
       };
     });
   }
@@ -2635,10 +2758,15 @@ function openWordDetail(word, lang, opts){
     var enriched = d && (d.ipa || d.ipaUs || (d.src && /youdao|dictapi|suggest/.test(d.src)));
     if (!enriched && wdPollTries < 5) {
       wdPollTries++;
-      setTimeout(function () { fetchDetail(word, lang, wdRenderEnriched, true, true); }, 2500);
+      setTimeout(function () { fetchDetail(cur.word, cur.lang, wdRenderEnriched, true, true); }, 2500);
     }
   }
-  fetchDetail(word, lang, wdRenderEnriched, false, false);
+  /* 压一层 history：让手机/浏览器回退键先作用于详解（逐层返回上一个词，栈空后再按才关弹窗），
+     而不是直接把整个页面导航走。关闭时在 close() 里统一 go(-wdHistDepth) 清理干净。 */
+  wdHistDepth = 1;
+  wdClosing = false;   // 新开一个详解：清掉上次关闭留下的待处理标记，避免首次回退被误吞
+  try { history.pushState({ wdNav: 1 }, ''); } catch (e) {}
+  loadAndRender();
   return ov;
 }
 /* 学习中新词首次出现的自动详解：每个词只自动弹一次（按当前账号 localStorage 记录） */

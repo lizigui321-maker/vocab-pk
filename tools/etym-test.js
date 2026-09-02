@@ -18,14 +18,18 @@ function extractFn(name) {
   return src.slice(start, end);
 }
 
+/* 直接从源码取 DICT_VER，避免以后再 bump 版本号时把这里写死的值撞坏（曾写死 6，bump 到 7 后失配） */
+const mVer = src.match(/^const DICT_VER = (\d+);/m);
 const code = [
-  'const DICT_VER = 6;',
+  'const DICT_VER = ' + (mVer ? mVer[1] : 7) + ';',
   extractFn('cleanText'),
   extractFn('iText'),
   extractFn('shortenDef'),
   extractFn('normDef'),
   extractFn('primarySeg'),   // isDupDef 依赖：多义项时才走到，缺了会在真实多义词上抛 ReferenceError
   extractFn('isDupDef'),
+  extractFn('parseSynonyms'),      // parseYoudao 依赖：解析有道 syno 同义词
+  extractFn('parseRelatedWords'),  // parseYoudao 依赖：解析有道 rel_word 同根/派生词
   extractFn('parseYoudao'),
   extractFn('parseDictApi'),
   extractFn('buildDetail'),

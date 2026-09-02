@@ -24,7 +24,7 @@ const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
 const STALE_PLAYER_TTL = Number(process.env.STALE_PLAYER_TTL) || 45 * 1000; // 掉线超过 45 秒的玩家自动移出房间（清僵尸，避免卡住开局）
 const ROOM_SWEEP_MS = Number(process.env.ROOM_SWEEP_MS) || 15000;           // 房间巡检间隔（清僵尸 / 删空房 / 转移房主）
-const APP_VERSION = '1.4.24';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.25';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -477,7 +477,8 @@ const DICT_MAX = 3000;                 // 缓存上限，超出后按时间淘�
    否则磁盘里旧版缓存会被原样读回，新的去重规则根本不会生效，
    用户看到的是「明明修了却还是一堆近义项」（这个坑踩过一次）。
    启动时会自动丢弃版本不符的旧条目，让它们按新规则重新生成。 */
-const DICT_VER = 6; // 6: 详解加入「词根词源」（取自有道 etym 块），淘汰旧缓存以重建 —— 旧条目没有 etym 字段，不重建就永远看不到词根
+const DICT_VER = 7; // 7: 详解新增「近义词 synonyms / 反义词 antonyms / 同根派生词 related」（有道 syno 与 rel_word 块），淘汰旧缓存以重建 —— 旧条目没有这些字段，不重建就永远看不到
+                    // 6: 详解加入「词根词源」（取自有道 etym 块）
 let dictCache = loadJSON(DICT_FILE, {});
 if (!dictCache || typeof dictCache !== 'object' || Array.isArray(dictCache)) dictCache = {};
 /* 淘汰旧版本缓存条目：只针对磁盘里读出来的富化结果（带 v 字段的才是本版本写的）。
@@ -650,7 +651,7 @@ function shortenDef(def, max) {
 }
 /* 有道 jsonapi → 统一结构（英文主力源） */
 function parseYoudao(d, word) {
-  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [], etym: '' };
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [], etym: '', synonyms: [], antonyms: [], related: [] };
   const pushSense = (pos, def) => {
     if (!def) return;
     if (out.senses.length >= 4) return;
@@ -709,7 +710,50 @@ function parseYoudao(d, word) {
       out.etym = cleanText(String(arr[0].value)).replace(/[\u200e\u200f]/g, '').slice(0, 300);
     }
   }
+  parseSynonyms(d, out);
+  parseRelatedWords(d, out);
   return out;
+}
+/* 同义词：有道 syno 块。真实结构为 d.syno.synos[].syno = {pos, ws:[{w:"play"}], tran}。
+   ⚠️ 注意不是 synos[].ws —— 早期探针按后者读，恒为空数组，据此误判「有道没有同义词」。
+   例：happy → adj: pleased/glad/blessed；act → n: behavior/dealing/action。 */
+function parseSynonyms(d, out) {
+  const arr = (d.syno && d.syno.synos) || [];
+  for (const it of arr) {
+    const s = it && it.syno;
+    if (!s) continue;
+    const ws = [];
+    for (const w of (s.ws || [])) {
+      const t = cleanText(w && (w.w || w));
+      if (t && ws.indexOf(t) < 0 && ws.length < 8) ws.push(t);
+    }
+    if (ws.length && out.synonyms.length < 4) {
+      out.synonyms.push({ pos: cleanText(s.pos) || '', tran: cleanText(s.tran || '').slice(0, 60), words: ws });
+    }
+  }
+}
+/* 派生/同根词：有道 rel_word.rels[].rel = {pos, words:[{word, tran}]}
+   这正是「一个词的各种形式（名词/副词/形容词…）+ 同词根派生词」的现成来源，且自带中文释义。
+   例：happy → adv:happily / n:happiness；create → adj:creative / adv:creatively / n:creation,creativity,creator；
+       act → n:action,activity,actor,actress,activation… */
+function parseRelatedWords(d, out) {
+  const rels = (d.rel_word && d.rel_word.rels) || [];
+  for (const it of rels) {
+    const r = it && it.rel;
+    if (!r) continue;
+    const words = [];
+    for (const w of (r.words || [])) {
+      const wd = cleanText(w && w.word);
+      if (!wd) continue;
+      const tr = cleanText(w && w.tran).slice(0, 40);
+      if (words.length < 12 && !words.some(function (x) { return x.word === wd; })) {
+        words.push({ word: wd, tran: tr });
+      }
+    }
+    if (words.length && out.related.length < 6) {
+      out.related.push({ pos: cleanText(r.pos) || '', words: words });
+    }
+  }
 }
 /* 有道 suggest → 统一结构（西语等小语种兜底：只有释义，没有音标/例句）
    注意：suggest 会返回一堆「形近词」（查 hola 会带出 holanda / holandeses），
@@ -866,7 +910,7 @@ function isDupDef(newDef, existing) {
   return false;
 }
 function parseDictApi(d, word) {
-  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [], etym: '' };
+  const out = { senses: [], forms: [], phrases: [], examples: [], exams: [], etym: '', synonyms: [], antonyms: [], related: [] };
   if (!Array.isArray(d) || !d[0]) return null;
   const e = d[0];
   // 词根/词源：取自 dictionaryapi.dev 的 origin 字段（真实词源）；缺失则留空，绝不杜撰
@@ -876,6 +920,8 @@ function parseDictApi(d, word) {
     if (!out.ipa && ph.text) out.ipa = cleanText(ph.text);
     if (!out.audio && ph.audio) out.audio = String(ph.audio);
   }
+  /* 同/反义词：dictionaryapi.dev 在每个 meaning 下给 synonyms/antonyms 数组。
+     有道没有反义词数据，所以反义词只能从这里取；该接口偶发超时/缺词，取不到就留空（绝不杜撰）。 */
   for (const m of (e.meanings || [])) {
     if (out.senses.length >= 4) break;
     const pos = cleanText(m.partOfSpeech);
@@ -887,6 +933,19 @@ function parseDictApi(d, word) {
       out.senses.push({ pos: pos, def: dtext, en: cleanText(def.example || '').slice(0, 160) });
     }
   }
+  const syn = [], ant = [];
+  for (const m of (e.meanings || [])) {
+    for (const s of (m.synonyms || [])) {
+      const t = cleanText(s);
+      if (t && syn.indexOf(t) < 0 && syn.length < 12) syn.push(t);
+    }
+    for (const a of (m.antonyms || [])) {
+      const t = cleanText(a);
+      if (t && ant.indexOf(t) < 0 && ant.length < 12) ant.push(t);
+    }
+  }
+  if (syn.length && !out.synonyms.length) out.synonyms.push({ pos: '', tran: '', words: syn });
+  out.antonyms = ant;
   if (!out.senses.length) return null;
   return out;
 }
@@ -909,6 +968,9 @@ function buildDetail(word, lang, parsed, src) {
     examples: parsed.examples || [],
     exams: parsed.exams || [],
     etym: parsed.etym || '',
+    synonyms: parsed.synonyms || [],
+    antonyms: parsed.antonyms || [],
+    related: parsed.related || [],
     src: src, at: Date.now(),
     v: DICT_VER,   // 结构版本：供启动时淘汰旧规则生成的缓存（详见 DICT_VER 注释）
   };
@@ -954,6 +1016,9 @@ function mergeBookOnline(book, online) {
     examples: (online.examples && online.examples.length) ? online.examples : (book.examples || []),
     exams: (online.exams && online.exams.length) ? online.exams : (book.exams || []),
     etym: (online.etym || ''),
+    synonyms: (online.synonyms && online.synonyms.length) ? online.synonyms : [],
+    antonyms: (online.antonyms && online.antonyms.length) ? online.antonyms : [],
+    related: (online.related && online.related.length) ? online.related : [],
     src: (online.src ? (online.src + '+book') : (book.src || 'book')),
     at: Date.now(),
     v: DICT_VER,
@@ -1030,6 +1095,35 @@ async function getWordDetail(word, lang, wait) {
   if (hit && typeof hit === 'object' && hit.neg && Date.now() - (hit.at || 0) < NEG_TTL) return null;
   return startFetchWordDetail(w, lang);
 }
+/* 反义词：有道完全没有反义词字段，只有 dictionaryapi.dev 的 meanings[].antonyms 提供。
+   该接口在沙箱偶发不可达、生产正常，且有时缺词 —— 所以「反义词可能为空」属正常，绝不杜撰。
+   抽成 fetchAntonyms(w) 独立函数，供两种用法共用：
+     1) 首屏短超时 await（尽量把反义词带到第一次打开的详解里）；
+     2) fillAntonymsAsync 后台补（首屏没拿到时，下次打开该词即见）。 */
+function fetchAntonyms(w) {
+  const q = encodeURIComponent(String(w).toLowerCase());
+  return fetchJSON('https://api.dictionaryapi.dev/api/v2/entries/en/' + q, 4000).then(function (d) {
+    if (!Array.isArray(d) || !d[0]) return [];
+    const ant = [];
+    for (const m of (d[0].meanings || [])) {
+      for (const a of (m.antonyms || [])) {
+        const t = cleanText(a);
+        if (t && ant.indexOf(t) < 0 && ant.length < 12) ant.push(t);
+      }
+    }
+    return ant;
+  });
+}
+function fillAntonymsAsync(key, w) {
+  if (!(key in dictCache)) return;
+  fetchAntonyms(w).then(function (ant) {
+    const e = dictCache[key];
+    if (ant.length && e && !(e.antonyms || []).length) {
+      e.antonyms = ant;
+      dictDirty = true; saveDict();
+    }
+  }).catch(function () {});
+}
 async function _fetchWordDetail(w, key, lang) {
   const isEs = lang === 'es';
   const q = encodeURIComponent(w.toLowerCase());
@@ -1073,8 +1167,21 @@ async function _fetchWordDetail(w, key, lang) {
             if (p2) { if (p2.ipa) p.ipa = p2.ipa; if (p2.audio) p.audio = p2.audio; }
           } catch (e) { console.log('[dict] dictapi(ipa) failed for', w, '-', e.message); }
         }
+        // 反义词：有道完全不提供，只有 dictionaryapi.dev 有（沙箱偶发不可达、生产正常）。
+        // 首屏尽量带上：短超时(1.8s) await，拿不到也不阻塞主流程 —— 超时/失败则转后台补，下回开此词即见。
+        if (!p.antonyms.length) {
+          try {
+            const got = await Promise.race([
+              fetchAntonyms(w),
+              new Promise(function (res) { setTimeout(function () { res(null); }, 1800); })
+            ]);
+            if (got && got.length) p.antonyms = got;
+            else fillAntonymsAsync(key, w);
+          } catch (e) { fillAntonymsAsync(key, w); }
+        }
         const out = buildDetail(w, 'en', p, 'youdao');
-        return cacheWordDetail(key, out);
+        const cached = cacheWordDetail(key, out);
+        return cached;
       }
       // 2) 有道失败/无结果：回退 dictionaryapi.dev（至少能补音标；非词书词也能给出英文释义）
       try {
@@ -1102,7 +1209,7 @@ async function _fetchWordDetail(w, key, lang) {
     dictConcurrent -= 1; // 无论成败都要释放并发名额
   }
   // 查不到时记一个空结果，避免同一个生僻词被反复联网查询（30 分钟后才允许重试）
-  dictCache[key] = { word: w, lang: isEs ? 'es' : 'en', ipa: '', audio: '', senses: [], forms: [], phrases: [], examples: [], exams: [], src: 'none', neg: true, at: Date.now(), v: DICT_VER };
+  dictCache[key] = { word: w, lang: isEs ? 'es' : 'en', ipa: '', audio: '', senses: [], forms: [], phrases: [], examples: [], exams: [], etym: '', synonyms: [], antonyms: [], related: [], src: 'none', neg: true, at: Date.now(), v: DICT_VER };
   dictDirty = true; saveDict();
   return null;
 }

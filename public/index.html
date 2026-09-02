@@ -1307,7 +1307,6 @@ function renderHome(){
       app.innerHTML = topbar +
         '<div class="hero">' + hero + '</div>' +
         '<div class="feat-grid">' +
-          '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">管理好友</div><div class="d">添加 / 删除好友 · 一键邀战</div></div>' +
           '<div class="feat pk" id="fPk"><div class="ic">⚡</div><div class="t">单词对战</div><div class="d">和小伙伴实时比拼</div></div>' +
           '<div class="feat" id="fWrong"><div class="ic">📒</div><div class="t">生词本</div><div class="d">' + (ov.wrongCount || 0) + ' 个答错的词</div></div>' +
           '<div class="feat" id="fKnown"><div class="ic">📗</div><div class="t">熟词本</div><div class="d">' + (ov.knownCount || 0) + ' 个已掌握</div></div>' +
@@ -1322,7 +1321,6 @@ function renderHome(){
       $('#fKnown').onclick = function(){ page = 'knownbook'; renderKnownbook(); };
       $('#fVocab').onclick = function(){ page = 'vocab'; renderVocabStart(); };
       $('#fGroups').onclick = function(){ page = 'groups'; renderGroups(); };
-      $('#fFriends').onclick = function(){ page = 'friends'; renderFriends(); };
       var sb = document.getElementById('setBtn'); if (sb) sb.onclick = function(){ page = 'settings'; renderSettings(); };
       var fb = document.getElementById('fbBtn'); if (fb) fb.onclick = openFeedback;
       var frb = document.getElementById('friendBtn'); if (frb) frb.onclick = openFriendsPopup;

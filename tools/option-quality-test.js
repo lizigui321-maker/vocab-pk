@@ -117,6 +117,9 @@ async function main() {
     do: ['做', '干', '从事'], rocket: ['火箭'], semiconductor: ['半导体'],
     spite: ['恶意', '怨恨'], tension: ['紧张', '张力'], textile: ['纺织品', '纺织'],
     estimate: ['估计', '估价'],
+    // 本轮审计修正：主释义偏僻/错填的词，确认已恢复为常用义（且非纯词性垃圾）
+    quick: ['快'], august: ['八月'], refuse: ['拒绝'], pitch: ['球场', '音高'],
+    grave: ['严重'], fringe: ['边缘'], monster: ['怪物'], trifle: ['琐事', '少量'],
   };
   for (const [w, kws] of Object.entries(expect)) {
     let foundClean = null, foundGarbage = false;

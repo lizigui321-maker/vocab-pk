@@ -2466,6 +2466,7 @@ function fillIpaCells(scope) {
   var pending = [];
   for (var i = 0; i < cells.length; i++) {
     var el = cells[i];
+    if (el.textContent && el.textContent.trim()) continue; // 已有内容（如服务端随题下发的音标）跳过，避免覆盖
     var w = el.getAttribute('data-ipa-w'), l = el.getAttribute('data-ipa-l');
     var key = detailKey(w, l);
     if (l === 'es') continue; // 西语暂无音标，跳过
@@ -3315,6 +3316,8 @@ function renderGame(v){
 
   var centerHtml;
   var pkLang = bookLangOf(v.settings && v.settings.bookId);
+  // 服务端随题下发的音标（已预热缓存），直接渲染，避免逐题异步拉取导致部分词缺音标
+  var qIpa = (q.ipa ? '/' + q.ipa + '/' : '') + (q.ipaUk && q.ipaUk !== q.ipa ? '　英 /' + q.ipaUk + '/' : '');
   if (v.phase === 'question') {
     if (isListen) {
       centerHtml = '<button class="listen-btn speak-flash" id="replayBtn" title="点击重听">🔊</button>' +
@@ -3324,14 +3327,14 @@ function renderGame(v){
       centerHtml = '<div class="word">' + esc(q.word) + '</div>' +
         '<div class="sq-tools" style="margin:0 0 4px">' +
           '<button class="spk-btn" id="pkSpeak" title="真人发音">🔊 发音</button>' +
-          '<span class="ipa ipa-cell" data-ipa-w="' + esc(q.word) + '" data-ipa-l="' + esc(pkLang) + '"></span>' +
+          '<span class="ipa ipa-cell" data-ipa-w="' + esc(q.word) + '" data-ipa-l="' + esc(pkLang) + '">' + qIpa + '</span>' +
         '</div>';
     }
   } else {
     centerHtml = '<div class="word">' + esc(q.word) + '</div>' +
       '<div class="sq-tools" style="margin:0 0 4px">' +
         '<button class="spk-btn" id="pkSpeak" title="真人发音">🔊 发音</button>' +
-        '<span class="ipa ipa-cell" data-ipa-w="' + esc(q.word) + '" data-ipa-l="' + esc(pkLang) + '"></span>' +
+        '<span class="ipa ipa-cell" data-ipa-w="' + esc(q.word) + '" data-ipa-l="' + esc(pkLang) + '">' + qIpa + '</span>' +
       '</div>' +
       '<div class="meaning">✔ ' + esc(q.options[v.lastResult ? v.lastResult.correctIndex : 0]) + '</div>';
   }
@@ -3403,8 +3406,8 @@ function renderGame(v){
   // 一旦重渲染发生在「按下」与「松开」之间，click 事件丢失，表现为「点不动/卡住」。
   fillIpaCells(app); // 给 PK 题音标小标签异步填充（学习/对战共用缓存，命中即同步）
 
-  // 听力模式自动朗读（每题一次）
-  if (v.phase === 'question' && isListen && lastSpokenQ !== v.qIndex) {
+  // 每题自动朗读一次（看词选义 + 听力模式都自动播放发音；与学习模式一致，无需手动点 🔊）
+  if (v.phase === 'question' && lastSpokenQ !== v.qIndex) {
     lastSpokenQ = v.qIndex;
     setTimeout(function(){ if (cur && cur.phase === 'question') speak(q.word, bookLangOf(v.settings && v.settings.bookId)); }, 500);
   }

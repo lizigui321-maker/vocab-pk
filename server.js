@@ -24,7 +24,7 @@ const ROOM_EMPTY_TTL = 5 * 60 * 1000;               // 空房间保留时长
 const ONLINE_WINDOW = 12 * 1000;                    // 最近 12 秒内有 SSE 或轮询即视为在线
 const STALE_PLAYER_TTL = Number(process.env.STALE_PLAYER_TTL) || 45 * 1000; // 掉线超过 45 秒的玩家自动移出房间（清僵尸，避免卡住开局）
 const ROOM_SWEEP_MS = Number(process.env.ROOM_SWEEP_MS) || 15000;           // 房间巡检间隔（清僵尸 / 删空房 / 转移房主）
-const APP_VERSION = '1.4.23';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
+const APP_VERSION = '1.4.24';                       // 部署版本号：经 /api/diag 与前端页脚展示，便于确认「更新是否生效」
 
 /* 词条预处理：从释义中剥离词性前缀，得到纯中文释义 + 词性分组。
  * 词性可能是组合形式：vi&n / vt&vi&n / n & adj / prep&adv 等（books.json 里共 1265 条）。
@@ -1561,7 +1561,7 @@ function genQuestions(bookId, count) {
     byPos.get(w.pos).push(w);
   }
   const pool = shuffle(words).slice(0, Math.min(count, words.length));
-  return pool.map((w) => {
+  const questions = pool.map((w) => {
     // 干扰项从「过滤后的词表」里取，避免把已剔除的简单词当干扰项又放出来；
     // 优先取同词性词条（无法按词性排除，迷惑性更强）；不足 3 个再从全书补
     let candidates = [];
@@ -1585,6 +1585,13 @@ function genQuestions(bookId, count) {
     const options = shuffle([w.meaning, ...distract]);
     return { word: w.word, meaning: w.meaning, options, correctIndex: options.indexOf(w.meaning) };
   });
+  // 预热词典缓存：对战出题时即异步拉取每个单词的音标/音频，使对战时音标即时显示
+  // （不再依赖前端逐题异步请求，避免快速切换时部分词音标缺失）
+  const qlang = (book.lang === 'es') ? 'es' : 'en';
+  if (qlang !== 'es') {
+    for (const q of questions) getWordDetail(q.word, qlang).catch(() => {});
+  }
+  return questions;
 }
 
 function newRoom({ bookId, mode, count }) {
@@ -1685,7 +1692,15 @@ function view(room, playerId) {
   if (room.phase === 'result') v.history = room.history || [];
   if ((room.phase === 'question' || room.phase === 'reveal') && room.questions[room.qIndex]) {
     const q = room.questions[room.qIndex];
-    v.question = { index: room.qIndex, word: q.word, options: q.options };
+    // 把词书词在词典缓存里的音标/音频随题下发，前端无需逐题异步拉取，避免对战时部分词缺音标
+    const qLang = (BOOKS.find((b) => b.id === room.settings.bookId) || {}).lang || 'en';
+    const dk = qLang !== 'es' ? dictCache[dictKey(q.word, qLang)] : null;
+    v.question = {
+      index: room.qIndex, word: q.word, options: q.options,
+      ipa: (dk && (dk.ipa || dk.ipaUs)) ? (dk.ipa || dk.ipaUs) : '',
+      ipaUk: (dk && dk.ipaUk && dk.ipaUk !== (dk.ipa || dk.ipaUs)) ? dk.ipaUk : '',
+      audio: (dk && dk.audio) ? dk.audio : '',
+    };
     if (room.phase === 'question') {
       v.question.deadline = room.roundStartedAt + room.roundMs;
       v.question.durationMs = room.roundMs;

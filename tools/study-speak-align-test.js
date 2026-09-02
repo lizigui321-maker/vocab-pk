@@ -61,8 +61,10 @@ global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () =
 /* ---- 假 DOM ---- */
 function makeEl(id) {
   const el = {
+    // style 必须存在：详解弹窗的 applyHeader 会设置 be.style.display / ce.style.display 等，
+    // 缺了会在「跳词/首次渲染」时抛 "Cannot set properties of undefined (setting 'display')"。
     id: id || null, onclick: null, disabled: false, textContent: '', value: '', _h: '',
-    _attrs: {}, classList: { add() {}, remove() {} },
+    _attrs: {}, classList: { add() {}, remove() {} }, style: {},
     getAttribute(k) { return this._attrs[k]; }, setAttribute(k, v) { this._attrs[k] = v; },
     focus() {}, addEventListener() {}, removeEventListener() {}, appendChild() {},
     querySelector(sel) { return makeEl(String(sel).replace('#', '')); },

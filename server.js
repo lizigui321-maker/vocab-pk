@@ -460,10 +460,23 @@ async function gracefulShutdown(sig) {
   await kvFlush(pending);
   exitAfterFlush(0);
 }
-process.on('SIGTERM', () => { gracefulShutdown('SIGTERM').catch(() => process.exit(0)); });
-process.on('SIGINT', () => { gracefulShutdown('SIGINT').catch(() => process.exit(0)); });
-/* beforeExit 兜底：进程正常退出（无 SIGTERM，如脚本结束）时也要把挂起的云端写入落盘 */
-process.on('beforeExit', () => { if (kvUsable && Object.keys(kvTimers).length) kvFlush(kvTakePending()); });
+process.on('SIGTERM', () => { try { flushDictSave(); } catch (e) {} gracefulShutdown('SIGTERM').catch(() => process.exit(0)); });
+process.on('SIGINT', () => { try { flushDictSave(); } catch (e) {} gracefulShutdown('SIGINT').catch(() => process.exit(0)); });
+/* beforeExit 兜底：进程正常退出（无 SIGTERM，如脚本结束）时也要把挂起的云端写入与词典缓存落盘 */
+process.on('beforeExit', () => { try { flushDictSave(); } catch (e) {} if (kvUsable && Object.keys(kvTimers).length) kvFlush(kvTakePending()); });
+/* 崩溃防护（Node 15+ 未处理的 Promise rejection 默认直接杀进程）：
+   一个词查网络失败、一个房间状态异常，都不该让整台服务挂掉 —— 那会同时打断
+   所有正在进行中的对战。这里只记日志、不退出；真正的致命错误由平台重启兜底。 */
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', (err && err.stack) || err);
+});
+process.on('uncaughtException', (err) => {
+  // 尽量把内存里的账号数据抢救到云端，避免一次异常把几分钟内的注册/进度全丢
+  console.error('[uncaughtException]', (err && err.stack) || err);
+  try {
+    if (kvUsable && Object.keys(kvTimers).length) kvFlush(kvTakePending()).catch(() => {});
+  } catch (e) { /* 兜底本身失败也无所谓，日志已经打出 */ }
+});
 
 /* ================= 单词词典（音标 / 释义 / 例句 / 搭配） =================
  * 数据来源（服务端拉取，避免浏览器直连被 CORS / 网络策略拦掉）：
@@ -503,6 +516,22 @@ function saveDict() {
     for (const k of keys.slice(0, Math.ceil(keys.length / 2))) delete dictCache[k];
   }
   saveJSON(DICT_FILE, dictCache);
+}
+/* 词典缓存写盘合并：每富化一个词都会走 cacheWordDetail→saveDict，若直接整文件同步重写，
+   批量学习 / 一轮 20 题对战时会在毫秒级连续触发多次大 JSON 写盘，阻塞事件循环、拖慢所有在线请求。
+   这里把多次调用合并成「最多每 SAVE_DICT_MS 落一次盘」。词典缓存本就是可重建的最佳努力缓存，
+   极端情况（崩溃/断电）顶多丢最近这一窗口的富化结果，下次联网即补回，无正确性风险。
+   注意：账号/会话等用户数据仍走 saveAccounts/saveSessions 的即时原子写，绝不延迟。 */
+let dictSaveTimer = null;
+const SAVE_DICT_MS = 1000;
+function scheduleSaveDict() {
+  if (dictSaveTimer) return;               // 已排期，等它触发即可
+  dictSaveTimer = setTimeout(function () { dictSaveTimer = null; saveDict(); }, SAVE_DICT_MS);
+}
+/* 退出/重启前把可能还在防抖窗口里的缓存立即落盘，避免白富化 */
+function flushDictSave() {
+  if (dictSaveTimer) { clearTimeout(dictSaveTimer); dictSaveTimer = null; }
+  saveDict();
 }
 
 /* ---------- 离线词书索引：所有内置词书自带的「词性 + 中文释义」----------
@@ -580,7 +609,7 @@ async function loadDictShard(word, lang, ms) {
   return; // 云端词典缓存已停用；本地 store/dict.json 在启动时已载入内存
 }
 function saveDictShard(word, lang) {
-  saveDict(); // 仅落本地磁盘（会被平台清盘，但只是缓存，可重建）
+  scheduleSaveDict(); // 仅落本地磁盘（会被平台清盘，但只是缓存，可重建），合并写盘避免密集重写
 }
 /* 后台限速富化：对已有词书释义、但缺音标/例句的词，慢慢联网补齐并存库。
    严格限速，既保护外部 API，也避免打爆 Upstash 免费额度。 */
@@ -590,6 +619,7 @@ let enrichRunning = false;
 let enrichCount = 0;
 let enrichHourStart = Date.now();
 const ENRICH_MAX_PER_HOUR = 240;
+const ENRICH_QUEUE_MAX = 400;
 function scheduleEnrich(word, lang) {
   const key = dictKey(word, lang);
   const cur = dictCache[key];
@@ -597,7 +627,12 @@ function scheduleEnrich(word, lang) {
   if (enrichSeen.has(key)) return;
   enrichSeen.add(key);
   enrichQueue.push({ word: word, lang: lang });
-  if (enrichQueue.length > 400) enrichQueue.shift();
+  // 队列爆满时挤掉的是最老的一条；必须同时把它从 enrichSeen 里移除，
+  // 否则这个词会被永久当成「已排过队」，再也进不了队列 → 音标永远补不上。
+  if (enrichQueue.length > ENRICH_QUEUE_MAX) {
+    const dropped = enrichQueue.shift();
+    if (dropped) enrichSeen.delete(dictKey(dropped.word, dropped.lang));
+  }
   startEnrich();
 }
 async function startEnrich() {
@@ -610,7 +645,9 @@ async function startEnrich() {
       const item = enrichQueue.shift();
       if (!item) break;
       try {
-        const d = await _fetchWordDetail(item.word, dictKey(item.word, item.lang), item.lang);
+        // 走 startFetchWordDetail 而不是直接 _fetchWordDetail：复用 inFlight 去重，
+        // 避免同一个词被「对战预热」和「后台队列」同时拉两遍（白打一次外部 API）。
+        const d = await startFetchWordDetail(item.word, item.lang);
         if (d) { enrichCount++; saveDictShard(item.word, item.lang); }
       } catch (e) { /* 富化失败不影响用户，下次再说 */ }
       await sleep(700);
@@ -1030,7 +1067,7 @@ function cacheWordDetail(key, out) {
   const finalOut = (bk && (bk.senses || []).length) ? mergeBookOnline(bk, out) : out;
   dictCache[key] = finalOut;
   dictDirty = true;
-  saveDict();
+  scheduleSaveDict();
   return finalOut;
 }
 
@@ -1047,6 +1084,23 @@ function startFetchWordDetail(word, lang) {
   dictInFlight.set(key, p);
   p.then(() => { dictInFlight.delete(key); saveDictShard(word, lang); }, () => dictInFlight.delete(key));
   return p;
+}
+/* 【对战题目专用】高优先级音标预热。
+   为什么不能走 scheduleEnrich 的后台队列：那条队列是「慢慢补」的 —— 串行处理、
+   每条间隔 700ms、且每小时只放 240 个配额。一轮 20 题要十几秒才补完，而开局倒计时
+   只有 3 秒，所以「前几题永远没音标」；配额一旦被别的地方用完，更是整小时都补不上
+   （这正是线上「PK 时有些单词没有音标」的根因）。
+   对战的词是用户此刻马上要看的，优先级最高：这里直接并发拉取，走 inFlight 去重 +
+   全局并发上限，与后台队列的配额完全独立计数。 */
+function warmPkWords(words, lang) {
+  if (lang === 'es') return;   // 西语题目前端直接拼有道发音 URL，无需预热
+  for (const w of words) {
+    const key = dictKey(w, lang);
+    const cur = dictCache[key];
+    if (cur && (cur.ipa || cur.ipaUs || cur.audio)) continue; // 已有音标/音频
+    if (cur && cur.neg) continue;                             // 确认查不到的词别反复打网络
+    startFetchWordDetail(w, lang).catch(() => {});
+  }
 }
 /* 同步等在线富化（带超时）。详情弹窗首屏用：避免用户先看到不完整的词书义、再靠轮询补。 */
 async function enrichWithTimeout(word, lang, ms) {
@@ -1120,17 +1174,23 @@ function fillAntonymsAsync(key, w) {
     const e = dictCache[key];
     if (ant.length && e && !(e.antonyms || []).length) {
       e.antonyms = ant;
-      dictDirty = true; saveDict();
+      dictDirty = true; scheduleSaveDict();
     }
   }).catch(function () {});
 }
 async function _fetchWordDetail(w, key, lang) {
   const isEs = lang === 'es';
   const q = encodeURIComponent(w.toLowerCase());
-  try {
-    while (dictConcurrent >= DICT_MAX_CONCURRENT) await new Promise((r) => setTimeout(r, 120));
+  /* 原子占位：先自增再判断，超限时「归还名额 → 等待 → 重新抢占」。
+     旧写法是「检查 → await → 自增」：多个等待者被同一批定时器唤醒后会一起通过检查，
+     实际并发远超 DICT_MAX_CONCURRENT，这个限流形同虚设。
+     等待用随机抖动，避免一堆请求同频重试互相踩。 */
+  dictConcurrent += 1;
+  while (dictConcurrent > DICT_MAX_CONCURRENT) {
+    dictConcurrent -= 1;
+    await new Promise((r) => setTimeout(r, 40 + Math.floor(Math.random() * 120)));
     dictConcurrent += 1;
-  } catch (e) { /* 等待被中断也正常返回 */ }
+  }
   try {
     if (isEs) {
       // 优先 jsonapi(le=es) 的 multle 完整词典；suggest 仅作兜底（只有模糊释义）
@@ -1210,7 +1270,7 @@ async function _fetchWordDetail(w, key, lang) {
   }
   // 查不到时记一个空结果，避免同一个生僻词被反复联网查询（30 分钟后才允许重试）
   dictCache[key] = { word: w, lang: isEs ? 'es' : 'en', ipa: '', audio: '', senses: [], forms: [], phrases: [], examples: [], exams: [], etym: '', synonyms: [], antonyms: [], related: [], src: 'none', neg: true, at: Date.now(), v: DICT_VER };
-  dictDirty = true; saveDict();
+  dictDirty = true; scheduleSaveDict();
   return null;
 }
 
@@ -1692,12 +1752,11 @@ function genQuestions(bookId, count) {
     const options = shuffle([w.meaning, ...distract]);
     return { word: w.word, meaning: w.meaning, options, correctIndex: options.indexOf(w.meaning) };
   });
-  // 预热词典缓存：对战出题时即异步拉取每个单词的音标/音频，使对战时音标即时显示
-  // （不再依赖前端逐题异步请求，避免快速切换时部分词音标缺失）
-  const qlang = (book.lang === 'es') ? 'es' : 'en';
-  if (qlang !== 'es') {
-    for (const q of questions) getWordDetail(q.word, qlang).catch(() => {});
-  }
+  /* 预热词典缓存：对战出题时即拉取每个单词的音标/音频，使对战时音标即时显示
+     （不再依赖前端逐题异步请求，避免快速切换时部分词音标缺失）。
+     走 warmPkWords 高优先级并发预热，而不是 scheduleEnrich 的限速后台队列 ——
+     后者太慢（串行+700ms 间隔+240/小时配额），开局倒计时只有 3 秒，前几题必然没音标。 */
+  warmPkWords(questions.map((q) => q.word), (book.lang === 'es') ? 'es' : 'en');
   return questions;
 }
 
@@ -1733,6 +1792,18 @@ function addPlayer(room, name, isHost, username) {
 function isOnline(p) {
   if (p.res && !p.res.writableEnded && !p.res.destroyed) return true;
   return p.lastSeen && Date.now() - p.lastSeen < ONLINE_WINDOW;
+}
+/* 房间内「以某个玩家的身份操作」时的归属校验。
+   playerId 虽然随机，但同房间的人能在前端抓到彼此的 id，仅凭 id 校验不足以防冒用
+   （拿到对方 playerId 就能替他答题、替房主开局、把别人踢出房间）。
+   策略：请求带了【有效】令牌、且目标玩家已绑定账号时，两者必须一致，否则拒绝；
+   没带令牌 / 令牌已过期 / 匿名玩家一律放行 —— 房间流程本身不要求登录，
+   不能因为 token 过期就把正在对战中的人挡在门外。 */
+function actorMismatch(req, u, b, pl) {
+  if (!pl || !pl.username) return false;              // 匿名玩家：无从校验，放行
+  const acc = authUser(tokenOf(req, u, b));
+  if (!acc) return false;                             // 未登录或令牌已过期：保持原行为
+  return String(acc.username).toLowerCase() !== String(pl.username).toLowerCase();
 }
 /* 把玩家彻底移出房间：关掉它的 SSE 心跳定时器与连接，并按需转移房主。
    返回 true 表示房间已空（调用方决定是否删除房间）。
@@ -2308,6 +2379,12 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
+  /* 必须挂载 error 监听：手机切后台/用户关页面/弱网断连时，socket 会在我们
+     await（例如等词典富化最多 5s）期间被销毁，此时 res.write/end 抛 EPIPE。
+     没有监听 → 变成未捕获异常 → 整个进程退出（所有在线房间的对战全断）。
+     这里吞掉即可：连接已经没了，响应写给谁都不重要。 */
+  res.on('error', () => {});
+  req.on('error', () => {});
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   const u = new URL(req.url, 'http://localhost');
@@ -2688,19 +2765,25 @@ const server = http.createServer(async (req, res) => {
       room.emptySince = 0;
       clearInterval(player.ping);
       // 心跳：写失败说明连接已经断了，立刻置空 res，让该玩家进入「掉线」判定（之后会被自动清出房间）
-      player.ping = setInterval(() => {
+      const pingTimer = setInterval(() => {
         try {
           if (!res.writableEnded && !res.destroyed) res.write(': ping\n\n');
           else throw new Error('closed');
         } catch (e) {
-          clearInterval(player.ping); player.ping = null;
+          clearInterval(pingTimer);
+          if (player.ping === pingTimer) player.ping = null;
           if (player.res === res) { player.res = null; broadcast(room); }
         }
       }, 15000);
+      player.ping = pingTimer;
       // 连接建立后再广播一次：所有人（含刚加入者自己）的绿点状态立即正确
       broadcast(room);
       req.on('close', () => {
-        clearInterval(player.ping);
+        /* 心跳定时器同样只能清「本连接自己起的那个」：EventSource 断线重连时，
+           旧连接的 close 可能比新连接建立更晚触发，直接 clearInterval(player.ping)
+           会把新连接刚起的心跳一起杀掉 —— 此后这个玩家的掉线就再也检测不到，
+           player.res 会一直指向一个死 socket（绿点不翻灰、重开也卡住）。 */
+        if (player.ping === pingTimer) { clearInterval(pingTimer); player.ping = null; }
         /* 只有「这条连接仍是该玩家的当前连接」才清：EventSource 断线重连时，
            旧连接的 close 可能比新连接建立晚触发，无脑置空会把新连接一起干掉。 */
         if (player.res === res) {
@@ -2730,6 +2813,7 @@ const server = http.createServer(async (req, res) => {
       const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
+      if (actorMismatch(req, u, b, pl)) return send(res, 403, { error: '身份不匹配，不能代替他人操作' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以开始游戏' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '当前阶段无法开始' });
       // 只有「非房主且在线」的玩家需要先准备：房主点开始即代表自己已就绪，
@@ -2749,6 +2833,7 @@ const server = http.createServer(async (req, res) => {
       const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
+      if (actorMismatch(req, u, b, pl)) return send(res, 403, { error: '身份不匹配，不能代替他人操作' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '游戏进行中，无需准备' });
       pl.ready = (b.ready === undefined) ? !pl.ready : !!b.ready;
       broadcast(room);
@@ -2760,6 +2845,7 @@ const server = http.createServer(async (req, res) => {
       const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
+      if (actorMismatch(req, u, b, pl)) return send(res, 403, { error: '身份不匹配，不能代替他人操作' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以修改房间设置' });
       if (room.phase !== 'lobby' && room.phase !== 'result') return send(res, 400, { error: '游戏进行中，不能修改设置' });
       if (b.bookId && BOOKS.some((x) => x.id === b.bookId)) room.settings.bookId = b.bookId;
@@ -2779,6 +2865,8 @@ const server = http.createServer(async (req, res) => {
       const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 200, { ok: true }); // 幂等：房间/玩家已不存在也算成功
+      // 令牌有效但不属于该玩家 → 不允许替别人退房间（会把人从对战里挤出去）
+      if (actorMismatch(req, u, b, pl)) return send(res, 403, { error: '身份不匹配，不能代替他人操作' });
       const empty = removePlayer(room, pl);
       if (empty) { clearTimeout(room.timer); rooms.delete(room.id); }
       else broadcast(room);
@@ -2790,6 +2878,7 @@ const server = http.createServer(async (req, res) => {
       const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
+      if (actorMismatch(req, u, b, pl)) return send(res, 403, { error: '身份不匹配，不能代替他人操作' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以移出玩家' });
       let n = 0;
       for (const x of [...room.players.values()]) {
@@ -2806,6 +2895,8 @@ const server = http.createServer(async (req, res) => {
       // 校验房号与玩家号匹配，避免任何人拿到 roomId 就能替别人答题（B4）
       const pl0 = room.players.get(String(b.playerId || ''));
       if (!pl0) return send(res, 403, { error: '你不在该房间' });
+      // 登录玩家之间不能互相代答（仅凭 playerId 不够：同房间的人能拿到彼此的 id）
+      if (actorMismatch(req, u, b, pl0)) return send(res, 403, { error: '身份不匹配，不能代替他人答题' });
       const qi = Number(b.qIndex), ci = Number(b.choice);
       if (!Number.isInteger(qi) || !Number.isInteger(ci)) return send(res, 400, { error: '参数不合法' });
       handleAnswer(room, pl0.id, qi, ci);
@@ -2816,9 +2907,13 @@ const server = http.createServer(async (req, res) => {
       const room = rooms.get(roomIdOf(b.roomId));
       const pl = room && room.players.get(b.playerId);
       if (!room || !pl) return send(res, 404, { error: '房间不存在' });
+      if (actorMismatch(req, u, b, pl)) return send(res, 403, { error: '身份不匹配，不能代替他人操作' });
       if (!pl.isHost) return send(res, 403, { error: '只有房主可以再来一局' });
-      // 与开局一致：只看非房主玩家是否就绪，并走 3 秒倒计时
-      const notReady = [...room.players.values()].filter((x) => !x.isHost && !x.ready);
+      // 与开局一致：先清掉僵尸玩家，再看「非房主且在线」的玩家是否就绪，并走 3 秒倒计时。
+      // 旧实现漏了 pruneStalePlayers 和 isOnline 过滤 —— 一个掉线且未准备的人会把
+      // 「再来一局」永久卡死，而与此同时点「开始」却能正常开局（两处逻辑不一致）。
+      pruneStalePlayers(room);
+      const notReady = [...room.players.values()].filter((x) => !x.isHost && isOnline(x) && !x.ready);
       if (notReady.length) {
         return send(res, 400, { error: '还有 ' + notReady.length + ' 人未准备：' + notReady.map((x) => x.name).join('、') });
       }
@@ -3407,4 +3502,9 @@ loadStoreFromKV().then(async () => {
     }
     process.exit(1);
   });
+}).catch(function (e) {
+  // 启动阶段（拉云端数据/登记租约/建索引）抛错时给出可读日志，而不是静默变成
+  // 「端口没起来但进程还在」的假在线状态。
+  console.error('[启动失败] 初始化异常：', (e && e.stack) || e);
+  process.exit(1);
 });

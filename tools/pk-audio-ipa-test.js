@@ -39,19 +39,30 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // 轮询状态，收集每道题的 word + ipa
   const seen = new Map();
-  const deadline = Date.now() + 30000;
+  const deadline = Date.now() + 60000;
   let ticks = 0;
   while (Date.now() < deadline) {
     ticks++;
     const s = await api('/api/state?roomId=' + room.roomId + '&playerId=' + room.playerId, token);
     if (s && s.question && s.question.word) {
       const q = s.question;
-      if (!seen.has(q.word)) { seen.set(q.word, { ipa: q.ipa, ipaUk: q.ipaUk, audio: q.audio }); console.log('  tick', ticks, 'phase=', s.phase, 'word=', q.word, 'ipa=', JSON.stringify(q.ipa)); }
+      const prev = seen.get(q.word);
+      /* 关键：每次轮询都刷新该题的音标。出题(genQuestions)是「异步」预热 dictCache 的，
+         第一次读到时常还没富化完（ipa 为空），等在线富化落地后同一题再读就有值。
+         若只在首次记录，就把空白永久固化 → 测试变成看运气的 flaky。 */
+      if (!prev) {
+        seen.set(q.word, { ipa: q.ipa, ipaUk: q.ipaUk, audio: q.audio });
+        console.log('  tick', ticks, 'phase=', s.phase, 'word=', q.word, 'ipa=', JSON.stringify(q.ipa));
+      } else if (prev.ipa !== q.ipa || prev.audio !== q.audio) {
+        seen.set(q.word, { ipa: q.ipa, ipaUk: q.ipaUk, audio: q.audio });
+        console.log('  tick', ticks, 'enriched:', q.word, 'ipa=', JSON.stringify(q.ipa));
+      }
     } else if (s) {
       console.log('  tick', ticks, 'phase=', s.phase, 'question?', !!s.question);
     }
-    if (seen.size >= 4) break; // 收集到 4 题即可判定
-    await sleep(700);
+    const gotIpa = [...seen.values()].some((d) => d.ipa && d.ipa.trim());
+    if (seen.size >= 4 && gotIpa) break;   // 收集到 4 题且至少一题已有音标，即可判定
+    await sleep(500);
   }
 
   const list = [...seen.entries()];

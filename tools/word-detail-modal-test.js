@@ -20,10 +20,10 @@ function extract(fnName, nextName) {
 }
 
 /* ---- 极简 fake DOM（支持 id/class 递归查找、事件注册、remove） ---- */
-function makeEl(tag, id, cls) {
+function makeEl(tag, id, cls, attrStr) {
   const el = {
     tag: tag || 'div', id: id || null, cls: cls || '', _h: '', parentNode: null,
-    style: {}, _kids: [], _handlers: {}, _cls: {},
+    style: {}, _kids: [], _handlers: {}, _cls: {}, _attrStr: attrStr || '',
     set innerHTML(v) { this._h = v; this._kids = []; registerChildren(this, v); },
     get innerHTML() { return this._h; },
     classList: {
@@ -36,7 +36,13 @@ function makeEl(tag, id, cls) {
     addEventListener(t, fn) { el._handlers[t] = fn; },
     appendChild(c) { c.parentNode = el; el._kids.push(c); },
     remove() { if (el.parentNode) el.parentNode.removeChild(el); },
-    contains(c) { return el === c || el._kids.some(function (k) { return k.contains(c); }); }
+    contains(c) { return el === c || el._kids.some(function (k) { return k.contains(c); }); },
+    /* 关联词 chip 的 onclick 走 btn.getAttribute('data-w') 取目标词，假元素必须支持，
+       否则跳转测试会在点击瞬间抛 "getAttribute is not a function"。 */
+    getAttribute(k) {
+      const m = (this._attrStr || '').match(new RegExp(k + '="([^"]*)"'));
+      return m ? m[1] : null;
+    }
   };
   return el;
 }
@@ -46,7 +52,7 @@ function registerChildren(el, v) {
   while ((m = re.exec(v))) {
     const idM = m[2].match(/id="([^"]+)"/);
     const clsM = m[2].match(/class="([^"]+)"/);
-    el._kids.push(makeEl(m[1], idM ? idM[1] : null, clsM ? clsM[1] : ''));
+    el._kids.push(makeEl(m[1], idM ? idM[1] : null, clsM ? clsM[1] : '', m[2] || ''));
   }
 }
 function findChild(el, sel) {
@@ -95,6 +101,25 @@ const doc = {
   removeEventListener(t) { delete doc._keys[t]; }
 };
 global.document = doc;
+
+/* 详解弹窗模块顶层有 window.addEventListener('popstate', ...)（关联词跳转的浏览器回退支持），
+   缺了 window stub 会在模块加载时直接 ReferenceError: window is not defined。
+   这里记录监听，便于后面用 fireWin('popstate') 模拟按下手机/浏览器回退键。 */
+const winHandlers = {};
+global.window = {
+  addEventListener(t, fn) { (winHandlers[t] = winHandlers[t] || []).push(fn); },
+  removeEventListener(t, fn) {
+    const a = winHandlers[t] || []; const i = a.indexOf(fn);
+    if (i >= 0) a.splice(i, 1);
+  }
+};
+function fireWin(type, ev) { (winHandlers[type] || []).slice().forEach(function (fn) { fn(ev || {}); }); }
+/* 关联词跳转用 history.pushState 压栈、history.go(-n) 关弹窗时清栈 */
+const histLog = [];
+global.history = {
+  pushState(s) { histLog.push(['push', s && s.wdNav]); },
+  go(n) { histLog.push(['go', n]); }
+};
 
 let pass = 0, fail = 0;
 function ok(c, m) { if (c) pass++; else { fail++; console.log('  ✗ ' + m); } }
@@ -159,7 +184,10 @@ ok(mod.getLock() === null, '关闭后滚动锁状态复位');
 // 遮罩点击关闭
 ov = mod.openWordDetail('banana', 'en');
 ok(doc.body.style.overflow === 'hidden', '再次打开重新锁定滚动');
-ok(!ov.querySelector('#wdCopy') && !ov.querySelector('.wd-book'), '无词书释义时不出现复制/词书条');
+/* 复制按钮与词书条是常驻节点，靠 display:none 隐藏（跳词时不一定有词书义），
+   所以这里断言「隐藏」而非「不存在」。 */
+ok(ov.querySelector('#wdCopy').style.display === 'none' && ov.querySelector('.wd-book').style.display === 'none',
+  '无词书释义时隐藏复制按钮/词书条（display:none）');
 ov._handlers.click({ target: ov });  // 点击遮罩
 ok(doc._overlays.length === 0, '点击遮罩关闭弹窗');
 ok(doc.body.style.overflow === '', '遮罩关闭后恢复滚动');
@@ -200,6 +228,57 @@ MOCK.etym = '';
 let ovN = mod.openWordDetail('nomatch', 'en', { meaning: '无' });
 let bodyN = ovN.querySelector('#wdBody');
 ok(bodyN.innerHTML.indexOf('词根词源') < 0, '无词源时不渲染「词根词源」区块（绝不杜撰）');
+
+console.log('== 关联词区块（近义 / 同根派生 / 反义）渲染 ==');
+MOCK.etym = '';
+MOCK.synonyms = [{ pos: 'adj.', tran: '高兴的', words: ['glad', 'pleased'] }];
+MOCK.related = [{ pos: 'n.', words: [{ word: 'happiness', tran: '幸福' }] }];
+MOCK.antonyms = ['sad'];
+let ovR = mod.openWordDetail('happy', 'en', { meaning: '快乐的' });
+let bodyR = ovR.querySelector('#wdBody');
+ok(bodyR.innerHTML.indexOf('近义词') >= 0, '渲染「近义词」区块');
+ok(bodyR.innerHTML.indexOf('同根 · 派生词') >= 0, '渲染「同根·派生词」区块');
+ok(bodyR.innerHTML.indexOf('反义词') >= 0, '渲染「反义词」区块');
+ok(bodyR.innerHTML.indexOf('glad') >= 0, '近义词渲染出具体词');
+ok(bodyR.innerHTML.indexOf('幸福') >= 0, '派生词带中文释义');
+
+console.log('== 关联词 chip 点击跳转 + 返回 ==');
+let chips = bodyR.querySelectorAll('.wd-chip');
+ok(chips.length >= 4, 'chip 覆盖近义/派生/反义三类（数量 ' + chips.length + '）');
+ok(ovR.querySelector('#wdBack').style.display === 'none', '未跳转时隐藏「← 返回」按钮');
+let target = null;
+for (let i = 0; i < chips.length; i++) { if (chips[i].getAttribute('data-w') === 'happiness') target = chips[i]; }
+ok(!!target, '找到 data-w=happiness 的 chip');
+if (target) {
+  target.onclick();
+  ok(ovR.querySelector('#wdWord').textContent === 'happiness',
+    '点击派生词 chip 跳到 happiness（实际 ' + ovR.querySelector('#wdWord').textContent + '）');
+  ok(ovR.querySelector('#wdBack').style.display === '', '跳转后出现「← 返回」按钮');
+  ok(histLog.some(function (h) { return h[0] === 'push'; }), '跳转时 history.pushState 压栈（回退键可用）');
+  const before = fetchDetailCalls.length;
+  ovR.querySelector('#wdBack').onclick();
+  ok(ovR.querySelector('#wdWord').textContent === 'happy',
+    '点「← 返回」回到 happy（实际 ' + ovR.querySelector('#wdWord').textContent + '）');
+  ok(fetchDetailCalls.length > before, '返回后重新拉取该词释义');
+  ok(ovR.querySelector('#wdBack').style.display === 'none', '回到首个词后隐藏「← 返回」');
+}
+
+console.log('== 浏览器/手机回退键（popstate）逐层返回 ==');
+let ovP = mod.openWordDetail('happy', 'en', { meaning: '快乐的' });
+let chipsP = ovP.querySelector('#wdBody').querySelectorAll('.wd-chip');
+let t2 = null;
+for (let i = 0; i < chipsP.length; i++) { if (chipsP[i].getAttribute('data-w') === 'glad') t2 = chipsP[i]; }
+ok(!!t2, '找到 data-w=glad 的 chip');
+if (t2) {
+  t2.onclick();
+  ok(ovP.querySelector('#wdWord').textContent === 'glad', '跳转到 glad');
+  fireWin('popstate');                       // 模拟按下回退键
+  ok(ovP.querySelector('#wdWord').textContent === 'happy',
+    '按回退键返回上一个词 happy（实际 ' + ovP.querySelector('#wdWord').textContent + '）');
+  ok(doc._overlays.length === 1, '回退键返回的是「上一个词」，不是关掉整个弹窗');
+  fireWin('popstate');                       // 栈已空 → 再按一次应当关闭弹窗
+  ok(doc._overlays.length === 0, '导航栈空后再按回退键才关闭弹窗');
+}
 
 console.log('\n结果: ' + pass + ' 通过, ' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

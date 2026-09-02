@@ -1263,6 +1263,7 @@ function renderHome(){
       '<span class="chip">👤 <b>' + esc(account ? account.name : '') + '</b> · @' + esc(account ? account.username : '') + '</span>' +
       '<span style="display:flex;align-items:center;gap:8px">' +
         '<button class="theme-toggle" id="thBtn">🌙</button>' +
+        '<button class="copybtn" id="friendBtn">🧑‍🤝‍🧑 好友</button>' +
         '<button class="copybtn" id="fbBtn">💬 反馈</button>' +
         '<button class="copybtn" id="setBtn">⚙️ 设置</button>' +
         '<button class="copybtn" id="logoutBtn">退出</button>' +
@@ -1293,15 +1294,7 @@ function renderHome(){
           '<div class="sub">按词频科学排序 · 间隔重复记忆 · 支持西语</div>' +
           '<div class="hbtns"><button class="hbtn" id="hStudy">开始制定计划 ▸</button></div>';
       }
-      /* 好友列表放在首页【最顶部】（topbar 之后、背单词卡片之前）。
-         以前它被排在功能宫格下面、几乎要滑到底才看得见，等于「主界面看不到好友」；
-         现在一进首页先看到人，可一键邀请 PK，往下才是背单词与各项功能。 */
       app.innerHTML = topbar +
-        '<div class="card">' +
-          '<div class="wb-head"><span class="wb-count">🧑‍🤝‍🧑 我的好友<span id="homeFriendCount"></span></span>' +
-            '<button class="copybtn" id="hfManage">管理好友</button></div>' +
-          '<div id="homeFriends" class="cb-list"></div>' +
-        '</div>' +
         '<div class="hero">' + hero + '</div>' +
         '<div class="feat-grid">' +
           '<div class="feat" id="fFriends"><div class="ic">🧑‍🤝‍🧑</div><div class="t">管理好友</div><div class="d">添加 / 删除好友 · 一键邀战</div></div>' +
@@ -1312,9 +1305,6 @@ function renderHome(){
           '<div class="feat" id="fGroups"><div class="ic">👥</div><div class="t">单词小组</div><div class="d">看看朋友的打卡</div></div>' +
         '</div>' +
         '<div class="footer-tip" id="ftip" style="display:none"></div>';
-      renderHomeFriends();
-      var hfm = document.getElementById('hfManage');
-      if (hfm) hfm.onclick = function(){ page = 'friends'; renderFriends(); };
       $('#hStudy').onclick = function(){ page = 'study'; renderStudy(); };
       var hr = $('#hReview'); if (hr) hr.onclick = function(){ page = 'study'; stuStart('review'); };
       $('#fPk').onclick = function(){ renderPk(); };
@@ -1325,6 +1315,7 @@ function renderHome(){
       $('#fFriends').onclick = function(){ page = 'friends'; renderFriends(); };
       var sb = document.getElementById('setBtn'); if (sb) sb.onclick = function(){ page = 'settings'; renderSettings(); };
       var fb = document.getElementById('fbBtn'); if (fb) fb.onclick = openFeedback;
+      var frb = document.getElementById('friendBtn'); if (frb) frb.onclick = openFriendsPopup;
       wireTopbar();
       // 页脚显示部署版本号：让用户直观确认「更新是否生效」（单数据源 = /api/diag）
       api('/api/diag', null, 'GET').then(function(d){ var vt = document.getElementById('ver-tag'); if (vt && d && d.version) vt.textContent = '　·　v' + d.version; }).catch(function(){});
@@ -1332,42 +1323,49 @@ function renderHome(){
     .catch(function(e){ toast(e.message); renderAuth(); });
 }
 
-/* 首页好友列表：以前好友只在一个二级页面里，用户反馈「主界面看不到好友列表」。
-   这里直接在首页渲染，带在线小绿点 + 一键邀请 PK；点「管理好友」才进完整页面（增删好友）。 */
-function renderHomeFriends(){
-  var box = document.getElementById('homeFriends');
-  if (!box) return;
-  box.innerHTML = '<div class="wb-empty">加载中…</div>';
+/* 好友快捷面板：点导航栏「🧑‍🤝‍🧑 好友」按钮弹出的浮层。
+   用户原意是「导航栏加好友按钮、点开弹出好友列表」，而不是把好友列表一直钉在首页顶部。
+   复用 .overlay/.modal/.cb-list 浮层样式，与好友选择器一致。 */
+function openFriendsPopup(){
+  var ov = document.getElementById('friendOverlay');
+  if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'friendOverlay'; ov.className = 'overlay';
+  ov.innerHTML =
+    '<div class="modal">' +
+      '<div class="topbar" style="justify-content:space-between"><span class="chip">🧑‍🤝‍🧑 我的好友</span>' +
+        '<button class="copybtn" id="fpClose">关闭</button></div>' +
+      '<div style="padding:2px 16px 8px"><button class="copybtn" id="fpManage" style="width:100%">➕ 添加 / 管理好友</button></div>' +
+      '<div id="fpList" class="cb-list"></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  var list = $('#fpList');
+  list.innerHTML = '<div class="wb-empty">加载中…</div>';
   api('/api/friends', null, 'GET').then(function(d){
+    if (!document.getElementById('fpList')) return; // 浮层已被关掉
     var fs = d.friends || [];
-    var cnt = document.getElementById('homeFriendCount');
-    if (cnt) cnt.textContent = fs.length ? '（' + fs.length + '）' : '';
-    if (!document.getElementById('homeFriends')) return; // 已切走页面，别再写 DOM
     if (!fs.length) {
-      /* 空态要「轻」：好友卡片已经挪到首页最顶部，再用那种三行 + 大留白的空态
-         会把「背单词」主卡片整个顶下去。一行说完，顺手给个入口即可。 */
-      box.innerHTML = '<div class="wb-empty" style="padding:8px 0 2px">还没有好友～ ' +
-        '<button class="copybtn" id="hfAdd" style="margin:0">➕ 去添加好友</button>' +
+      list.innerHTML = '<div class="wb-empty" style="padding:14px 0 8px">还没有好友～ ' +
         '<div style="font-size:12.5px;color:var(--faint);margin-top:4px">加个好友后，可在这里一键邀请 TA 对战</div></div>';
-      var a = document.getElementById('hfAdd');
-      if (a) a.onclick = function(){ page = 'friends'; renderFriends(); };
-      return;
-    }
-    box.innerHTML = fs.map(function(f){
-      return '<div class="cb-row">' +
-        '<span class="dot ' + (f.online ? 'on' : '') + '"></span>' +
-        '<span class="nm">' + esc(f.name) + ' <small>@' + esc(f.username) + '</small></span>' +
-        '<span class="ct">' + (f.online ? '<span style="color:var(--ok)">在线</span>' : '🔥 ' + (f.streak || 0) + ' 天') +
-          ' · 今日新 ' + f.today.new + '</span>' +
-        '<button class="copybtn pk-inv" data-u="' + esc(f.username) + '">⚡ 邀请PK</button>' +
+    } else {
+      list.innerHTML = fs.map(function(f){
+        return '<div class="cb-row">' +
+          '<span class="dot ' + (f.online ? 'on' : '') + '"></span>' +
+          '<span class="nm">' + esc(f.name) + ' <small>@' + esc(f.username) + '</small></span>' +
+          '<span class="ct">' + (f.online ? '<span style="color:var(--ok)">在线</span>' : '🔥 ' + (f.streak || 0) + ' 天') + '</span>' +
+          '<button class="copybtn pk-inv" data-u="' + esc(f.username) + '">⚡ 邀请PK</button>' +
         '</div>';
-    }).join('');
-    Array.prototype.forEach.call(box.querySelectorAll('.pk-inv'), function(b){
-      b.onclick = function(){ inviteFriendToPk(b.getAttribute('data-u')); };
-    });
+      }).join('');
+      Array.prototype.forEach.call(list.querySelectorAll('.pk-inv'), function(b){
+        b.onclick = function(){ ov.remove(); inviteFriendToPk(b.getAttribute('data-u')); };
+      });
+    }
   }).catch(function(){
-    if (document.getElementById('homeFriends')) box.innerHTML = '<div class="wb-empty">好友加载失败，下拉刷新试试</div>';
+    if (document.getElementById('fpList')) list.innerHTML = '<div class="wb-empty">好友加载失败，稍后重试</div>';
   });
+  $('#fpClose').onclick = function(){ ov.remove(); };
+  var mgr = document.getElementById('fpManage');
+  if (mgr) mgr.onclick = function(){ ov.remove(); page = 'friends'; renderFriends(); };
+  ov.onclick = function(e){ if (e.target === ov) ov.remove(); };
 }
 
 /* ---------- 设置（⚙️）：学习计划 / 外观 / 账号 ---------- */

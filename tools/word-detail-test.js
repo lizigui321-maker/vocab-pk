@@ -41,7 +41,10 @@ async function api(p, body, method) {
   const H = { Authorization: 'Bearer ' + TOKEN };
 
   console.log('== 2. 英文词 hello：完整详解结构 ==');
-  r = await fetch(BASE + '/api/word?w=hello&lang=en', { headers: H });
+  /* wait=1：同步等在线富化。不带 wait 时接口走「先秒回离线词书兜底（仅 1 条释义）+ 后台异步富化」，
+     冷缓存下拿到的是兜底数据，会让本组「完整详解结构」断言取决于【缓存冷热】而非代码对错 —— 
+     缓存热就过、缓存冷就挂，典型的 flaky 测试。加 wait=1 后稳定测到在线富化后的真实结构。 */
+  r = await fetch(BASE + '/api/word?w=hello&lang=en&wait=1', { headers: H });
   const h = await r.json();
   ok(r.status === 200 && h.ok === true, '接口返回 ok=true');
   ok(!!h.ipa && /[a-zA-Zəʊɜːˈˌ]/.test(h.ipa), '有音标 /' + h.ipa + '/');
@@ -58,7 +61,7 @@ async function api(p, body, method) {
   ok(h.senses.length <= 4, '总义项 <= 4 条');
 
   console.log('== 4. 西语 perro：multle 完整词典 ==');
-  r = await fetch(BASE + '/api/word?w=perro&lang=es', { headers: H });
+  r = await fetch(BASE + '/api/word?w=perro&lang=es&wait=1', { headers: H });
   const perro = await r.json();
   ok(r.status === 200 && perro.ok === true, '接口返回 ok=true');
   ok(perro.senses.some(s => s.def.indexOf('狗') >= 0), '含「狗」义项');
@@ -66,7 +69,7 @@ async function api(p, body, method) {
   ok(/dict\.youdao\.com\/dictvoice\?le=es/.test(perro.audio || ''), '有西语真人发音 URL');
 
   console.log('== 5. 西语 hola：形近词过滤（不混入 Holanda） ==');
-  r = await fetch(BASE + '/api/word?w=hola&lang=es', { headers: H });
+  r = await fetch(BASE + '/api/word?w=hola&lang=es&wait=1', { headers: H });
   const hola = await r.json();
   ok(r.status === 200 && hola.ok === true, '接口返回 ok=true');
   const holaDef = (hola.senses || []).map(s => s.def).join(' ');

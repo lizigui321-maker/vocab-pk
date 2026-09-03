@@ -2052,9 +2052,13 @@ function reveal(room) {
   const now = Date.now();
   const results = {};
   for (const [pid, a] of room.answered) {
+    const pl = room.players.get(pid);
     const correct = a.choice === q.correctIndex;
-    results[pid] = { choice: a.choice, correct, gained: a.gained };
-    if (!correct) recordWrong(room.players.get(pid), q, bookName, bookLang, now);
+    /* 把玩家名字一并随结果记录进 history：结算「单词总览」面板按 results 的 key 渲染，
+       不再依赖 room.players。否则有人中途退出房间（removePlayer 把他从 room.players 删掉）
+       后，他的逐题对错标签就会从其他人的面板里消失 —— 即使 history 里其实还存着。 */
+    results[pid] = { choice: a.choice, correct, gained: a.gained, name: pl ? (pl.name || '') : '' };
+    if (!correct) recordWrong(pl, q, bookName, bookLang, now);
   }
   // 超时未答也算生词（在线玩家，或本题期间见过但中途掉线的玩家）
   for (const p of room.players.values()) {

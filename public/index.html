@@ -3628,10 +3628,12 @@ function wordPanelHtml(v){
     var mine = (h.results || {})[v.you];
     var okTag = mine ? (mine.correct ? '<span class="tag ok">✓ 我答对</span>' : '<span class="tag no">✗ 我答错</span>')
                      : '<span class="tag" style="background:var(--well);color:var(--sub)">— 未作答</span>';
-    var others = v.players.filter(function(p){ return p.id !== v.you; }).map(function(p){
-      var r = (h.results || {})[p.id];
+    var others = Object.keys(h.results || {}).filter(function(pid){ return pid !== v.you; }).map(function(pid){
+      var r = h.results[pid];
       if (!r) return '';
-      return '<span class="tag ' + (r.correct ? 'ok' : 'no') + '">' + esc(p.name) + (r.correct ? '✓' : '✗') + '</span>';
+      // 用记录时存下的名字（r.name）；有人已退出房间(name 为空)时兜底显示「玩家」
+      var nm = r.name || '玩家';
+      return '<span class="tag ' + (r.correct ? 'ok' : 'no') + '">' + esc(nm) + (r.correct ? '✓' : '✗') + '</span>';
     }).join('');
     return '<tr data-i="' + i + '"' + (mine && !mine.correct ? ' class="mine"' : '') + '>' +
       '<td><input type="checkbox" class="ck wp-ck" data-i="' + i + '"' + (mine && !mine.correct ? ' checked' : '') + '></td>' +
